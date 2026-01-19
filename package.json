@@ -6,6 +6,10 @@
   "type": "commonjs",
   "author": "",
   "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Rodyd137/zenter-bridge.git"
+  },
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
@@ -43,11 +47,15 @@
       {
         "from": "assets",
         "to": "assets",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {
-      "target": ["nsis"],
+      "target": [
+        "nsis"
+      ],
       "icon": "assets/icon.ico"
     },
     "nsis": {
@@ -60,13 +68,9 @@
       "runAfterFinish": true,
       "include": "build/installer.nsh"
     },
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "Rodyd137",
-        "repo": "zenter-bridge",
-        "releaseType": "publish"
-      }
-    ]
+    "publish": {
+      "provider": "github",
+      "releaseType": "release"
+    }
   }
 }
