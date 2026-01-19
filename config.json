@@ -1,0 +1,23 @@
+{
+  "SUPABASE_URL": "https://zeucdfkwrdrskmypqpwt.supabase.co",
+  "SUPABASE_SERVICE_ROLE": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpldWNkZmt3cmRyc2tteXBxcHd0Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NTIwODg5MywiZXhwIjoyMDgwNzg0ODkzfQ.oD9rlmtmEHQ-14K3dh4IwVmbwkRLj0ul6q2stTOex9Y"
+set DEVICE_ID=DSK1A8503EF",
+  "DEVICE_UUID": "5c736c7e-17dd-4c5f-9d07-1700a10ae83a",
+
+  "HIK_IP": "192.168.20.170",
+  "HIK_USER": "admin",
+  "HIK_PASS": "Jacob2021",
+
+  "SUPABASE_TABLE": "access_events",
+  "START_MODE": "now",
+
+  "RECONNECT_MS": 1500,
+  "CURL_VERBOSE": 0,
+  "FLUSH_INTERVAL_MS": 5000,
+  "INSERT_CONCURRENCY": 3,
+
+  "BRIDGE_ID": "FEDI-SRL",
+  "HEARTBEAT_MS": 15000,
+  "HEARTBEAT_TABLE": "access_device_heartbeats",
+  "BRIDGE_VERSION": "zenter-bridge@1.0.0"
+}

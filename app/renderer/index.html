@@ -1,0 +1,64 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Zenter Bridge</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto; margin: 16px; }
+    .row { display:flex; gap:12px; flex-wrap:wrap; align-items:flex-start; }
+    .card { border:1px solid #ddd; border-radius:12px; padding:12px; }
+    label { display:block; font-size:12px; opacity:.8; margin-top:10px; }
+    input { width: 430px; padding: 8px; border:1px solid #ccc; border-radius:10px; }
+    button { padding:10px 14px; border-radius:10px; border:1px solid #ccc; background:#fff; cursor:pointer; }
+    button.primary { border-color:#111; font-weight:600; }
+    pre { background:#0b1220; color:#d6e1ff; padding:12px; border-radius:12px; height:240px; overflow:auto; }
+    .small { font-size:12px; opacity:.75; white-space:pre-wrap; }
+  </style>
+</head>
+<body>
+  <h2>Zenter Bridge</h2>
+  <div class="small" id="configPath"></div>
+
+  <div class="row" style="margin-top:12px">
+    <div class="card">
+      <h3>Controls</h3>
+      <div class="row">
+        <button class="primary" id="btnStart">Start</button>
+        <button id="btnStop">Stop</button>
+        <button id="btnRestart">Restart</button>
+        <button id="btnSave">Save Settings</button>
+      </div>
+      <div class="small" style="margin-top:10px" id="state">...</div>
+    </div>
+
+    <div class="card">
+      <h3>Settings</h3>
+
+      <label>SUPABASE_URL</label>
+      <input id="SUPABASE_URL" placeholder="https://xxxx.supabase.co" />
+
+      <label>SUPABASE_SERVICE_ROLE</label>
+      <input id="SUPABASE_SERVICE_ROLE" type="password" placeholder="service_role key" />
+
+      <label>DEVICE_UUID</label>
+      <input id="DEVICE_UUID" placeholder="uuid de access_devices.id" />
+
+      <label>HIK_IP</label>
+      <input id="HIK_IP" placeholder="192.168.20.170" />
+
+      <label>HIK_USER</label>
+      <input id="HIK_USER" placeholder="admin" />
+
+      <label>HIK_PASS</label>
+      <input id="HIK_PASS" type="password" placeholder="password" />
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:14px">
+    <h3>Logs</h3>
+    <pre id="logs"></pre>
+  </div>
+
+  <script src="./renderer.js"></script>
+</body>
+</html>
