@@ -2,8 +2,8 @@
 // ✅ Tray app + Settings window
 // ✅ SINGLE INSTANCE (evita múltiples apps en segundo plano)
 // ✅ Bridge corre como Node dentro del mismo electron.exe (ELECTRON_RUN_AS_NODE=1) → NO duplica
-// ✅ Auto-start con Windows (login) + toggle desde UI (si quieres después)
-// ✅ Auto-update (electron-updater) + menú "Check updates"
+// ✅ Auto-start con Windows (login) + arranque silencioso con --autostart
+// ✅ Auto-update (electron-updater) + menú "Check updates" + "Install update"
 // ✅ Icon: dev -> app/renderer/icon.ico | instalado -> resources/assets/icon.ico
 // ✅ Config: ProgramData si se puede, si no userData (fallback)
 
@@ -22,6 +22,13 @@ let win = null;
 let bridgeProc = null;
 
 const APP_NAME = "Zenter Bridge";
+let quitting = false;
+
+// =============================
+// Args
+// =============================
+const argv = process.argv.slice(1);
+const isAutoStart = argv.includes("--autostart") || argv.includes("--hidden");
 
 // =============================
 // SINGLE INSTANCE
@@ -31,6 +38,7 @@ if (!gotLock) {
   app.quit();
 } else {
   app.on("second-instance", () => {
+    // Si alguien intenta abrir otra instancia, mostramos la existente
     if (win) {
       win.show();
       win.focus();
@@ -86,10 +94,7 @@ function defaultCfg() {
     BRIDGE_ID: os.hostname(),
     HEARTBEAT_MS: 15000,
     HEARTBEAT_TABLE: "access_device_heartbeats",
-    BRIDGE_VERSION: `zenter-bridge@${app.getVersion()}`,
-
-    // Opcional (para luego si quieres toggle desde UI)
-    // START_ON_BOOT: true
+    BRIDGE_VERSION: `zenter-bridge@${app.getVersion()}`
   };
 }
 
@@ -153,12 +158,13 @@ async function writeConfig(cfg) {
 // Auto start on Windows
 // =============================
 function setupAutoLaunch() {
-  // Para perMachine NSIS normalmente funciona con esto.
-  // Nota: algunos ambientes requieren admin; pero como tu instalador es perMachine, ok.
+  // Arranca con Windows (login)
   try {
+    const exe = process.execPath; // en instalado es Zenter Bridge.exe
     app.setLoginItemSettings({
       openAtLogin: true,
-      // args: ["--autostart"], // opcional si quieres distinguir arranque silencioso
+      path: exe,
+      args: ["--autostart"]
     });
   } catch (e) {
     console.error("autoLaunch error:", e.message);
@@ -191,7 +197,6 @@ function missingCoreFields(cfg) {
 function startBridge() {
   const cfg = readConfig();
 
-  // DEBUG (solo consola)
   console.log("CONFIG_PATH =", CONFIG_PATH);
   console.log("CFG(core) =", {
     SUPABASE_URL: cfg.SUPABASE_URL ? "[OK]" : "",
@@ -201,11 +206,16 @@ function startBridge() {
 
   const missing = missingCoreFields(cfg);
   if (missing.length) {
-    dialog.showErrorBox(
-      APP_NAME,
-      `Faltan settings: ${missing.join(", ")}.\n\nAbre Settings y completa.\n\nConfig file:\n${CONFIG_PATH}`
-    );
-    if (win) win.show();
+    // Si viene por autostart, NO spamees dialog al usuario
+    if (!isAutoStart) {
+      dialog.showErrorBox(
+        APP_NAME,
+        `Faltan settings: ${missing.join(", ")}.\n\nAbre Settings y completa.\n\nConfig file:\n${CONFIG_PATH}`
+      );
+      if (win) win.show();
+    } else {
+      console.error("Missing config fields:", missing.join(", "), "|", CONFIG_PATH);
+    }
     return;
   }
 
@@ -278,18 +288,20 @@ function createWindow() {
     win.loadFile(UI_HTML);
   }
 
-  // En tray apps, el close solo oculta
+  // Close = hide (tray app)
   win.on("close", (e) => {
+    if (quitting) return; // deja cerrar normal cuando el usuario elige Quit
     e.preventDefault();
     win.hide();
   });
 }
 
-function updateTrayMenu(extra = {}) {
+let updateState = "idle"; // idle | checking | available | downloading | downloaded | error
+
+function updateTrayMenu() {
   if (!tray) return;
 
   const running = isBridgeRunning();
-  const updateState = extra.updateState || "idle"; // idle | checking | available | downloading | downloaded | error
 
   const menu = Menu.buildFromTemplate([
     { label: `${APP_NAME} (${running ? "RUNNING" : "STOPPED"})`, enabled: false },
@@ -298,17 +310,25 @@ function updateTrayMenu(extra = {}) {
 
     { label: running ? "Stop" : "Start", click: () => (running ? stopBridge() : startBridge()) },
     { label: "Restart", click: () => restartBridge(), enabled: running },
-    { label: "Open Settings", click: () => { win.show(); win.focus(); } },
+    { label: "Open Settings", click: () => { if (win) { win.show(); win.focus(); } } },
 
     { type: "separator" },
     { label: "Check for updates", click: () => triggerUpdateCheck(true) },
+    { label: "Install update now", click: () => triggerInstallNow(), enabled: updateState === "downloaded" },
 
     { type: "separator" },
     { label: "Open Config Folder", click: () => shell.openPath(CONFIG_DIR) },
     { label: "Open Config File", click: () => shell.openPath(CONFIG_PATH) },
 
     { type: "separator" },
-    { label: "Quit", click: () => { stopBridge(); app.quit(); } }
+    {
+      label: "Quit",
+      click: () => {
+        quitting = true;
+        stopBridge();
+        app.quit();
+      }
+    }
   ]);
 
   tray.setContextMenu(menu);
@@ -323,29 +343,32 @@ function createTray() {
       APP_NAME,
       `No encuentro icon.ico en:\n${ICON_PATH}\n\nDev: app\\renderer\\icon.ico\nInstalado: resources\\assets\\icon.ico`
     );
-    win.show();
+    if (win) win.show();
     return;
   }
 
   tray = new Tray(ICON_PATH);
-  tray.on("click", () => { win.show(); win.focus(); });
+  tray.on("click", () => {
+    if (!win) return;
+    win.show();
+    win.focus();
+  });
   updateTrayMenu();
 }
 
 // =============================
 // Auto Update (electron-updater)
 // =============================
-let updateState = "idle";
-let updateTimer = null;
-
 function setUpdateState(s) {
   updateState = s;
-  updateTrayMenu({ updateState });
+  updateTrayMenu();
   if (win) win.webContents.send("update-state", { state: s });
 }
 
 function setupAutoUpdater() {
-  // Para GitHub releases funciona con publish config del package.json
+  // Solo tiene sentido en app instalada
+  if (!app.isPackaged) return;
+
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
 
@@ -359,7 +382,10 @@ function setupAutoUpdater() {
   autoUpdater.on("download-progress", () => setUpdateState("downloading"));
   autoUpdater.on("update-downloaded", () => {
     setUpdateState("downloaded");
-    // Instala al cerrar o si el usuario quiere ahora:
+
+    // Si vino por autostart, no molestes con dialog
+    if (isAutoStart) return;
+
     dialog
       .showMessageBox({
         type: "info",
@@ -369,34 +395,49 @@ function setupAutoUpdater() {
         defaultId: 0
       })
       .then((r) => {
-        if (r.response === 0) {
-          // instala y reinicia
-          autoUpdater.quitAndInstall();
-        }
+        if (r.response === 0) triggerInstallNow();
       })
       .catch(() => {});
   });
 }
 
-// Chequeo manual o periódico
 function triggerUpdateCheck(userInitiated = false) {
   if (!app.isPackaged) {
-    if (userInitiated) dialog.showMessageBox({ message: "Auto-update solo funciona en la app instalada (build).", buttons: ["OK"] });
+    if (userInitiated) {
+      dialog.showMessageBox({
+        title: APP_NAME,
+        message: "Auto-update solo funciona en la app instalada (build).",
+        buttons: ["OK"]
+      });
+    }
     return;
   }
   try {
     autoUpdater.checkForUpdates();
   } catch (e) {
     console.error("checkForUpdates error:", e.message);
+    setUpdateState("error");
+  }
+}
+
+function triggerInstallNow() {
+  if (!app.isPackaged) return;
+  try {
+    // Cierra todo e instala
+    quitting = true;
+    stopBridge();
+    autoUpdater.quitAndInstall();
+  } catch (e) {
+    console.error("quitAndInstall error:", e.message);
   }
 }
 
 function scheduleUpdateChecks() {
+  if (!app.isPackaged) return;
+
   // cada 6 horas
   const MS = 6 * 60 * 60 * 1000;
-  if (updateTimer) clearInterval(updateTimer);
-  updateTimer = setInterval(() => triggerUpdateCheck(false), MS);
-  updateTimer.unref();
+  setInterval(() => triggerUpdateCheck(false), MS).unref();
 }
 
 // =============================
@@ -419,9 +460,8 @@ ipcMain.handle("bridge:restart", () => restartBridge());
 ipcMain.handle("bridge:running", () => ({ running: isBridgeRunning() }));
 ipcMain.handle("paths:config", () => ({ configPath: CONFIG_PATH, configDir: CONFIG_DIR }));
 
-// opcional: desde UI puedes llamar updates
 ipcMain.handle("updates:check", () => { triggerUpdateCheck(true); return { ok: true }; });
-ipcMain.handle("updates:install", () => { autoUpdater.quitAndInstall(); return { ok: true }; });
+ipcMain.handle("updates:install", () => { triggerInstallNow(); return { ok: true }; });
 
 // =============================
 // App lifecycle
@@ -430,9 +470,14 @@ app.whenReady().then(() => {
   ensureConfig();
   setupAutoLaunch();
 
-  // Ventana + Tray
   createWindow();
   createTray();
+
+  // Si NO es autostart, abre la ventana una vez
+  if (!isAutoStart) {
+    win.show();
+    win.focus();
+  }
 
   // Bridge auto-start
   startBridge();
