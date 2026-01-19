@@ -1,6 +1,6 @@
 {
   "name": "zenter-bridge",
-  "version": "1.0.3",
+  "version": "1.0.6",
   "description": "Zenter Bridge - Hikvision alertStream -> Supabase (offline queue + heartbeat)",
   "main": "main.js",
   "type": "commonjs",
@@ -12,11 +12,12 @@
     "pack": "electron-builder --dir",
     "dist": "electron-builder",
     "publish": "electron-builder --publish always",
+    "release": "electron-builder --publish always",
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.90.1",
-    "electron-updater": "^6.7.3"
+    "electron-updater": "^6.6.2"
   },
   "devDependencies": {
     "electron": "^40.0.0",
@@ -31,6 +32,8 @@
     "files": [
       "**/*",
       "!dist/**",
+      "!queue/**",
+      "!done/**",
       "!**/*.log"
     ],
     "asarUnpack": [
@@ -40,15 +43,11 @@
       {
         "from": "assets",
         "to": "assets",
-        "filter": [
-          "**/*"
-        ]
+        "filter": ["**/*"]
       }
     ],
     "win": {
-      "target": [
-        "nsis"
-      ],
+      "target": ["nsis"],
       "icon": "assets/icon.ico"
     },
     "nsis": {
@@ -64,9 +63,9 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "RODY_OWNER",
+        "owner": "Rodyd137",
         "repo": "zenter-bridge",
-        "releaseType": "release"
+        "releaseType": "publish"
       }
     ]
   }
