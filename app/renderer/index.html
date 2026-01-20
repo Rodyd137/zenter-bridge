@@ -7,31 +7,39 @@
 
   <style>
     :root{
-      --bg:#0b1220;
-      --panel:#0f172a;
-      --card:#111c33;
-      --card2:#0e1830;
-      --text:#e5e7eb;
-      --muted:#9ca3af;
-      --line:rgba(255,255,255,.08);
-      --soft:rgba(255,255,255,.06);
-      --shadow: 0 12px 30px rgba(0,0,0,.35);
-      --radius:16px;
-      --radius2:12px;
-      --accent:#60a5fa;
-      --good:#22c55e;
-      --bad:#ef4444;
+      /* Zenter (light + modern, dashboard-style) */
+      --bg0:#f6f8ff;
+      --bg1:#eef3ff;
+      --panel: rgba(255,255,255,.78);
+      --card: rgba(255,255,255,.72);
+      --text:#0f172a;
+      --muted:#64748b;
+      --line: rgba(15,23,42,.10);
+      --soft: rgba(15,23,42,.06);
+      --shadow: 0 12px 34px rgba(15,23,42,.12);
+      --shadow2: 0 6px 18px rgba(15,23,42,.10);
+      --radius:18px;
+      --radius2:14px;
+
+      /* Brand */
+      --accent:#2563eb;     /* blue */
+      --accent2:#7c3aed;    /* violet */
+      --good:#16a34a;
+      --bad:#dc2626;
       --warn:#f59e0b;
+
+      --focus: 0 0 0 4px rgba(37,99,235,.18);
     }
 
     * { box-sizing:border-box; }
     body{
       margin:0;
       font-family: system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial;
-      background: radial-gradient(1200px 600px at 10% 0%, rgba(96,165,250,.18), transparent 60%),
-                  radial-gradient(900px 520px at 90% 20%, rgba(34,197,94,.10), transparent 60%),
-                  var(--bg);
       color: var(--text);
+      background:
+        radial-gradient(1000px 520px at 12% 0%, rgba(37,99,235,.16), transparent 58%),
+        radial-gradient(900px 540px at 88% 18%, rgba(124,58,237,.14), transparent 60%),
+        linear-gradient(180deg, var(--bg0), var(--bg1));
     }
 
     .wrap{
@@ -40,6 +48,7 @@
       padding: 0 14px 18px;
     }
 
+    /* Topbar */
     .topbar{
       display:flex;
       align-items:center;
@@ -48,58 +57,50 @@
       padding: 14px 16px;
       border: 1px solid var(--line);
       border-radius: var(--radius);
-      background: rgba(15,23,42,.68);
-      backdrop-filter: blur(10px);
+      background: var(--panel);
+      backdrop-filter: blur(12px);
       box-shadow: var(--shadow);
     }
 
     .brand{
       display:flex;
       align-items:center;
-      gap: 10px;
+      gap: 12px;
       min-width: 260px;
     }
+
+    /* Zenter-ish glossy Z block */
     .logo{
-      width: 34px;
-      height: 34px;
-      border-radius: 10px;
-      background: linear-gradient(135deg, rgba(96,165,250,.95), rgba(34,197,94,.65));
-      box-shadow: 0 10px 30px rgba(96,165,250,.18);
+      width: 36px;
+      height: 36px;
+      border-radius: 12px;
+      position: relative;
+      background: radial-gradient(18px 18px at 30% 28%, rgba(255,255,255,.95), rgba(255,255,255,.0) 55%),
+                  linear-gradient(135deg, rgba(37,99,235,.95), rgba(124,58,237,.90));
+      box-shadow: 0 14px 34px rgba(37,99,235,.18), 0 10px 22px rgba(124,58,237,.12);
+      overflow:hidden;
     }
+    .logo:after{
+      content:"";
+      position:absolute; inset:-40%;
+      background: radial-gradient(circle at 30% 30%, rgba(255,255,255,.35), transparent 55%);
+      transform: rotate(15deg);
+    }
+
     .brand h1{
       margin:0;
-      font-size: 16px;
+      font-size: 15px;
       letter-spacing:.2px;
       line-height:1.15;
+      font-weight: 700;
     }
     .brand .sub{
-      margin-top:2px;
+      margin-top:3px;
       font-size: 12px;
       color: var(--muted);
     }
 
-    .pill{
-      display:inline-flex;
-      align-items:center;
-      gap:8px;
-      font-size: 12px;
-      padding: 7px 10px;
-      border-radius: 999px;
-      border: 1px solid var(--line);
-      background: rgba(255,255,255,.04);
-      white-space:nowrap;
-    }
-    .dot{
-      width:8px;
-      height:8px;
-      border-radius:999px;
-      background: var(--muted);
-      box-shadow: 0 0 0 3px rgba(255,255,255,.04);
-    }
-    .dot.good{ background: var(--good); box-shadow: 0 0 0 3px rgba(34,197,94,.15); }
-    .dot.bad{ background: var(--bad); box-shadow: 0 0 0 3px rgba(239,68,68,.15); }
-    .dot.warn{ background: var(--warn); box-shadow: 0 0 0 3px rgba(245,158,11,.15); }
-
+    /* Pills */
     .top-right{
       display:flex;
       gap: 10px;
@@ -108,6 +109,30 @@
       justify-content:flex-end;
     }
 
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      font-size: 12px;
+      padding: 8px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.66);
+      box-shadow: var(--shadow2);
+      white-space:nowrap;
+    }
+    .dot{
+      width:8px;
+      height:8px;
+      border-radius:999px;
+      background: var(--muted);
+      box-shadow: 0 0 0 4px rgba(15,23,42,.06);
+    }
+    .dot.good{ background: var(--good); box-shadow: 0 0 0 4px rgba(22,163,74,.14); }
+    .dot.bad{ background: var(--bad); box-shadow: 0 0 0 4px rgba(220,38,38,.14); }
+    .dot.warn{ background: var(--warn); box-shadow: 0 0 0 4px rgba(245,158,11,.14); }
+
+    /* Grid */
     .grid{
       margin-top: 14px;
       display:grid;
@@ -115,9 +140,10 @@
       gap: 14px;
     }
 
+    /* Cards */
     .card{
       border: 1px solid var(--line);
-      background: linear-gradient(180deg, rgba(17,28,51,.92), rgba(14,24,48,.78));
+      background: linear-gradient(180deg, rgba(255,255,255,.80), rgba(255,255,255,.62));
       border-radius: var(--radius);
       padding: 14px;
       box-shadow: var(--shadow);
@@ -126,7 +152,7 @@
     .card h2{
       margin: 0 0 10px 0;
       font-size: 13px;
-      color: rgba(229,231,235,.95);
+      color: rgba(15,23,42,.92);
       letter-spacing: .2px;
       display:flex;
       align-items:center;
@@ -142,11 +168,14 @@
       padding: 10px 12px;
       border-radius: var(--radius2);
       border: 1px solid var(--line);
-      background: rgba(255,255,255,.03);
+      background: rgba(255,255,255,.65);
       white-space: pre-wrap;
       line-height: 1.35;
+      color: rgba(15,23,42,.88);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.65);
     }
 
+    /* Form */
     .form{
       display:grid;
       grid-template-columns: 1fr;
@@ -156,7 +185,7 @@
 
     label{
       font-size: 12px;
-      color: rgba(229,231,235,.85);
+      color: rgba(15,23,42,.86);
       margin-bottom: 6px;
       display:flex;
       align-items:center;
@@ -168,19 +197,21 @@
     }
 
     .field{
-      border: 1px solid var(--line);
-      background: rgba(0,0,0,.18);
-      border-radius: 12px;
+      border: 1px solid rgba(15,23,42,.14);
+      background: rgba(255,255,255,.80);
+      border-radius: 14px;
       padding: 10px 12px;
       outline: none;
       color: var(--text);
       font-size: 13px;
       width:100%;
       transition: .15s ease;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.75);
     }
+    .field::placeholder{ color: rgba(100,116,139,.75); }
     .field:focus{
-      border-color: rgba(96,165,250,.7);
-      box-shadow: 0 0 0 3px rgba(96,165,250,.15);
+      border-color: rgba(37,99,235,.55);
+      box-shadow: var(--focus);
     }
 
     .row{
@@ -190,44 +221,63 @@
       align-items:center;
     }
 
+    /* Buttons */
     .btn{
-      border: 1px solid var(--line);
-      background: rgba(255,255,255,.06);
-      color: var(--text);
+      border: 1px solid rgba(15,23,42,.14);
+      background: rgba(255,255,255,.70);
+      color: rgba(15,23,42,.92);
       padding: 10px 12px;
-      border-radius: 12px;
+      border-radius: 14px;
       cursor: pointer;
       font-size: 13px;
       transition: .15s ease;
       user-select:none;
+      box-shadow: var(--shadow2);
     }
-    .btn:hover{ transform: translateY(-1px); background: rgba(255,255,255,.09); }
-    .btn:disabled{ opacity:.45; cursor:not-allowed; transform:none; }
+    .btn:hover{
+      transform: translateY(-1px);
+      background: rgba(255,255,255,.82);
+    }
+    .btn:active{ transform: translateY(0px); }
+    .btn:disabled{ opacity:.55; cursor:not-allowed; transform:none; }
+
     .btn.primary{
-      border-color: rgba(96,165,250,.65);
-      background: rgba(96,165,250,.12);
+      border-color: rgba(37,99,235,.35);
+      background: linear-gradient(135deg, rgba(37,99,235,.16), rgba(124,58,237,.12));
+      color: rgba(15,23,42,.95);
     }
+    .btn.primary:hover{
+      background: linear-gradient(135deg, rgba(37,99,235,.22), rgba(124,58,237,.16));
+    }
+
     .btn.danger{
-      border-color: rgba(239,68,68,.55);
-      background: rgba(239,68,68,.10);
+      border-color: rgba(220,38,38,.28);
+      background: rgba(220,38,38,.10);
+      color: rgba(127,29,29,.95);
     }
+    .btn.danger:hover{ background: rgba(220,38,38,.14); }
+
     .btn.ghost{
       background: transparent;
-      border-color: var(--line);
+      border-color: rgba(15,23,42,.14);
+      box-shadow: none;
     }
+    .btn.ghost:hover{ background: rgba(15,23,42,.04); }
 
     .section{
       margin-top: 12px;
       padding-top: 12px;
-      border-top: 1px dashed rgba(255,255,255,.10);
+      border-top: 1px dashed rgba(15,23,42,.16);
     }
 
+    /* Logs */
     .logwrap{
       margin-top: 10px;
       border: 1px solid var(--line);
       border-radius: var(--radius2);
       overflow:hidden;
-      background: rgba(0,0,0,.22);
+      background: rgba(255,255,255,.68);
+      box-shadow: var(--shadow2);
     }
     .loghead{
       display:flex;
@@ -236,17 +286,26 @@
       gap:10px;
       padding: 10px 12px;
       border-bottom: 1px solid var(--line);
-      background: rgba(255,255,255,.03);
+      background: rgba(255,255,255,.78);
     }
     pre{
       margin:0;
       padding: 12px;
       height: 340px;
       overflow:auto;
-      color: #d6e1ff;
+      color: rgba(15,23,42,.92);
       font-size: 12px;
       line-height: 1.35;
+      background: rgba(255,255,255,.35);
     }
+
+    /* Scrollbar (nice-to-have) */
+    pre::-webkit-scrollbar{ height: 10px; width: 10px; }
+    pre::-webkit-scrollbar-thumb{
+      background: rgba(15,23,42,.16);
+      border-radius: 999px;
+    }
+    pre::-webkit-scrollbar-track{ background: rgba(15,23,42,.06); }
 
     @media (max-width: 980px){
       .grid{ grid-template-columns: 1fr; }
@@ -259,7 +318,7 @@
   <div class="wrap">
     <div class="topbar">
       <div class="brand">
-        <div class="logo"></div>
+        <div class="logo" aria-hidden="true"></div>
         <div>
           <h1>Zenter Bridge</h1>
           <div class="sub">Hikvision alertStream ? Supabase ? Offline queue ? Heartbeat</div>
@@ -291,27 +350,27 @@
 
         <div class="form">
           <div>
-            <label>SUPABASE_URL <span class="hint">Ej: https://xxxx.supabase.co</span></label>
+            <label>SUPABASE URL <span class="hint">Ej: https://xxxx.supabase.co</span></label>
             <input class="field" id="SUPABASE_URL" placeholder="https://xxxx.supabase.co" />
           </div>
 
           <div>
-            <label>SUPABASE_SERVICE_ROLE <span class="hint">service_role key</span></label>
-            <input class="field" id="SUPABASE_SERVICE_ROLE" type="password" placeholder="service_role key" />
+            <label>API KEY<span class="hint">Service Role key</span></label>
+            <input class="field" id="SUPABASE_SERVICE_ROLE" type="password" placeholder="KxXWEjVRmfW7wfP0j10BPn7Uf6br3Tuw" />
           </div>
 
           <div>
-            <label>DEVICE_UUID <span class="hint">uuid de access_devices.id</span></label>
+            <label>DEVICE UUID <span class="hint">UUID del Access Devices</span></label>
             <input class="field" id="DEVICE_UUID" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
           </div>
 
           <div class="row">
             <div style="flex:1; min-width: 220px;">
-              <label>HIK_IP <span class="hint">IP del dispositivo</span></label>
-              <input class="field" id="HIK_IP" placeholder="192.168.20.170" />
+              <label>HIKVISION <span class="hint">Device IP Address</span></label>
+              <input class="field" id="HIK_IP" placeholder="192.168.20.10" />
             </div>
             <div style="flex:1; min-width: 220px;">
-              <label>HIK_USER <span class="hint">Usuario</span></label>
+              <label>Device User Name <span class="hint">User Name</span></label>
               <input class="field" id="HIK_USER" placeholder="admin" />
             </div>
           </div>
@@ -330,7 +389,7 @@
             <button class="btn" id="btnRestart">Restart</button>
           </div>
           <div class="muted small" style="margin-top:10px">
-            Tip: si faltan settings, la app no inicia el bridge.
+            Tip: si faltan settings, la app no iniciara el bridge.
           </div>
         </div>
       </div>
