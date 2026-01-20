@@ -1,64 +1,398 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Zenter Bridge</title>
+
   <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto; margin: 16px; }
-    .row { display:flex; gap:12px; flex-wrap:wrap; align-items:flex-start; }
-    .card { border:1px solid #ddd; border-radius:12px; padding:12px; }
-    label { display:block; font-size:12px; opacity:.8; margin-top:10px; }
-    input { width: 430px; padding: 8px; border:1px solid #ccc; border-radius:10px; }
-    button { padding:10px 14px; border-radius:10px; border:1px solid #ccc; background:#fff; cursor:pointer; }
-    button.primary { border-color:#111; font-weight:600; }
-    pre { background:#0b1220; color:#d6e1ff; padding:12px; border-radius:12px; height:240px; overflow:auto; }
-    .small { font-size:12px; opacity:.75; white-space:pre-wrap; }
+    :root{
+      --bg:#0b1220;
+      --panel:#0f172a;
+      --card:#111c33;
+      --card2:#0e1830;
+      --text:#e5e7eb;
+      --muted:#9ca3af;
+      --line:rgba(255,255,255,.08);
+      --soft:rgba(255,255,255,.06);
+      --shadow: 0 12px 30px rgba(0,0,0,.35);
+      --radius:16px;
+      --radius2:12px;
+      --accent:#60a5fa;
+      --good:#22c55e;
+      --bad:#ef4444;
+      --warn:#f59e0b;
+    }
+
+    * { box-sizing:border-box; }
+    body{
+      margin:0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial;
+      background: radial-gradient(1200px 600px at 10% 0%, rgba(96,165,250,.18), transparent 60%),
+                  radial-gradient(900px 520px at 90% 20%, rgba(34,197,94,.10), transparent 60%),
+                  var(--bg);
+      color: var(--text);
+    }
+
+    .wrap{
+      max-width: 1120px;
+      margin: 18px auto;
+      padding: 0 14px 18px;
+    }
+
+    .topbar{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap: 12px;
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(15,23,42,.68);
+      backdrop-filter: blur(10px);
+      box-shadow: var(--shadow);
+    }
+
+    .brand{
+      display:flex;
+      align-items:center;
+      gap: 10px;
+      min-width: 260px;
+    }
+    .logo{
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, rgba(96,165,250,.95), rgba(34,197,94,.65));
+      box-shadow: 0 10px 30px rgba(96,165,250,.18);
+    }
+    .brand h1{
+      margin:0;
+      font-size: 16px;
+      letter-spacing:.2px;
+      line-height:1.15;
+    }
+    .brand .sub{
+      margin-top:2px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      font-size: 12px;
+      padding: 7px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.04);
+      white-space:nowrap;
+    }
+    .dot{
+      width:8px;
+      height:8px;
+      border-radius:999px;
+      background: var(--muted);
+      box-shadow: 0 0 0 3px rgba(255,255,255,.04);
+    }
+    .dot.good{ background: var(--good); box-shadow: 0 0 0 3px rgba(34,197,94,.15); }
+    .dot.bad{ background: var(--bad); box-shadow: 0 0 0 3px rgba(239,68,68,.15); }
+    .dot.warn{ background: var(--warn); box-shadow: 0 0 0 3px rgba(245,158,11,.15); }
+
+    .top-right{
+      display:flex;
+      gap: 10px;
+      align-items:center;
+      flex-wrap:wrap;
+      justify-content:flex-end;
+    }
+
+    .grid{
+      margin-top: 14px;
+      display:grid;
+      grid-template-columns: 1.1fr .9fr;
+      gap: 14px;
+    }
+
+    .card{
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(17,28,51,.92), rgba(14,24,48,.78));
+      border-radius: var(--radius);
+      padding: 14px;
+      box-shadow: var(--shadow);
+    }
+
+    .card h2{
+      margin: 0 0 10px 0;
+      font-size: 13px;
+      color: rgba(229,231,235,.95);
+      letter-spacing: .2px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+    }
+
+    .muted{ color: var(--muted); }
+    .small{ font-size: 12px; }
+    .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+    .cfgbox{
+      padding: 10px 12px;
+      border-radius: var(--radius2);
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.03);
+      white-space: pre-wrap;
+      line-height: 1.35;
+    }
+
+    .form{
+      display:grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    label{
+      font-size: 12px;
+      color: rgba(229,231,235,.85);
+      margin-bottom: 6px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+    }
+    .hint{
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .field{
+      border: 1px solid var(--line);
+      background: rgba(0,0,0,.18);
+      border-radius: 12px;
+      padding: 10px 12px;
+      outline: none;
+      color: var(--text);
+      font-size: 13px;
+      width:100%;
+      transition: .15s ease;
+    }
+    .field:focus{
+      border-color: rgba(96,165,250,.7);
+      box-shadow: 0 0 0 3px rgba(96,165,250,.15);
+    }
+
+    .row{
+      display:flex;
+      gap: 10px;
+      flex-wrap:wrap;
+      align-items:center;
+    }
+
+    .btn{
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.06);
+      color: var(--text);
+      padding: 10px 12px;
+      border-radius: 12px;
+      cursor: pointer;
+      font-size: 13px;
+      transition: .15s ease;
+      user-select:none;
+    }
+    .btn:hover{ transform: translateY(-1px); background: rgba(255,255,255,.09); }
+    .btn:disabled{ opacity:.45; cursor:not-allowed; transform:none; }
+    .btn.primary{
+      border-color: rgba(96,165,250,.65);
+      background: rgba(96,165,250,.12);
+    }
+    .btn.danger{
+      border-color: rgba(239,68,68,.55);
+      background: rgba(239,68,68,.10);
+    }
+    .btn.ghost{
+      background: transparent;
+      border-color: var(--line);
+    }
+
+    .section{
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px dashed rgba(255,255,255,.10);
+    }
+
+    .logwrap{
+      margin-top: 10px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius2);
+      overflow:hidden;
+      background: rgba(0,0,0,.22);
+    }
+    .loghead{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255,255,255,.03);
+    }
+    pre{
+      margin:0;
+      padding: 12px;
+      height: 340px;
+      overflow:auto;
+      color: #d6e1ff;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    @media (max-width: 980px){
+      .grid{ grid-template-columns: 1fr; }
+      .brand{ min-width: 0; }
+    }
   </style>
 </head>
+
 <body>
-  <h2>Zenter Bridge</h2>
-  <div class="small" id="configPath"></div>
-
-  <div class="row" style="margin-top:12px">
-    <div class="card">
-      <h3>Controls</h3>
-      <div class="row">
-        <button class="primary" id="btnStart">Start</button>
-        <button id="btnStop">Stop</button>
-        <button id="btnRestart">Restart</button>
-        <button id="btnSave">Save Settings</button>
+  <div class="wrap">
+    <div class="topbar">
+      <div class="brand">
+        <div class="logo"></div>
+        <div>
+          <h1>Zenter Bridge</h1>
+          <div class="sub">Hikvision alertStream ? Supabase ? Offline queue ? Heartbeat</div>
+        </div>
       </div>
-      <div class="small" style="margin-top:10px" id="state">...</div>
+
+      <div class="top-right">
+        <div class="pill" id="statusPill">
+          <span class="dot" id="statusDot"></span>
+          <span id="state">...</span>
+        </div>
+
+        <div class="pill" id="updatePill">
+          <span class="dot" id="updateDot"></span>
+          <span id="updateState">Updates: IDLE</span>
+        </div>
+      </div>
     </div>
 
-    <div class="card">
-      <h3>Settings</h3>
+    <div class="grid">
+      <!-- LEFT: Settings -->
+      <div class="card">
+        <h2>
+          Settings
+          <span class="muted small">Guarda aqu? y arranca el Bridge</span>
+        </h2>
 
-      <label>SUPABASE_URL</label>
-      <input id="SUPABASE_URL" placeholder="https://xxxx.supabase.co" />
+        <div class="cfgbox small mono" id="configPath">Loading config path...</div>
 
-      <label>SUPABASE_SERVICE_ROLE</label>
-      <input id="SUPABASE_SERVICE_ROLE" type="password" placeholder="service_role key" />
+        <div class="form">
+          <div>
+            <label>SUPABASE_URL <span class="hint">Ej: https://xxxx.supabase.co</span></label>
+            <input class="field" id="SUPABASE_URL" placeholder="https://xxxx.supabase.co" />
+          </div>
 
-      <label>DEVICE_UUID</label>
-      <input id="DEVICE_UUID" placeholder="uuid de access_devices.id" />
+          <div>
+            <label>SUPABASE_SERVICE_ROLE <span class="hint">service_role key</span></label>
+            <input class="field" id="SUPABASE_SERVICE_ROLE" type="password" placeholder="service_role key" />
+          </div>
 
-      <label>HIK_IP</label>
-      <input id="HIK_IP" placeholder="192.168.20.170" />
+          <div>
+            <label>DEVICE_UUID <span class="hint">uuid de access_devices.id</span></label>
+            <input class="field" id="DEVICE_UUID" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+          </div>
 
-      <label>HIK_USER</label>
-      <input id="HIK_USER" placeholder="admin" />
+          <div class="row">
+            <div style="flex:1; min-width: 220px;">
+              <label>HIK_IP <span class="hint">IP del dispositivo</span></label>
+              <input class="field" id="HIK_IP" placeholder="192.168.20.170" />
+            </div>
+            <div style="flex:1; min-width: 220px;">
+              <label>HIK_USER <span class="hint">Usuario</span></label>
+              <input class="field" id="HIK_USER" placeholder="admin" />
+            </div>
+          </div>
 
-      <label>HIK_PASS</label>
-      <input id="HIK_PASS" type="password" placeholder="password" />
+          <div>
+            <label>HIK_PASS <span class="hint">Password</span></label>
+            <input class="field" id="HIK_PASS" type="password" placeholder="password" />
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="row">
+            <button class="btn primary" id="btnSave">Save Settings</button>
+            <button class="btn" id="btnStart">Start</button>
+            <button class="btn danger" id="btnStop">Stop</button>
+            <button class="btn" id="btnRestart">Restart</button>
+          </div>
+          <div class="muted small" style="margin-top:10px">
+            Tip: si faltan settings, la app no inicia el bridge.
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: Updates + Logs -->
+      <div class="card">
+        <h2>
+          System
+          <span class="muted small">Updates + runtime</span>
+        </h2>
+
+        <div class="row">
+          <button class="btn" id="btnUpdateCheck">Check updates</button>
+          <button class="btn primary" id="btnUpdateInstall" disabled>Install update</button>
+          <button class="btn ghost" id="btnClearLogs">Clear logs</button>
+        </div>
+
+        <div class="logwrap" style="margin-top:12px">
+          <div class="loghead">
+            <div class="small muted">Logs</div>
+            <div class="small muted">Se guardan en memoria (panel)</div>
+          </div>
+          <pre id="logs"></pre>
+        </div>
+
+        <div class="muted small" style="margin-top:10px">
+          Si el bridge est? corriendo bien, ver?s ?Boundary detectado? y ?Guardado?? cuando haya eventos.
+        </div>
+      </div>
     </div>
-  </div>
 
-  <div class="card" style="margin-top:14px">
-    <h3>Logs</h3>
-    <pre id="logs"></pre>
-  </div>
+    <script src="./renderer.js"></script>
 
-  <script src="./renderer.js"></script>
+    <!-- mini helper UI (sin tocar tu renderer.js) -->
+    <script>
+      // Clear logs button (no depende del backend)
+      const btnClear = document.getElementById("btnClearLogs");
+      if (btnClear) btnClear.onclick = () => { document.getElementById("logs").textContent = ""; };
+
+      // Pillas: cambia colores por estado (renderer.js igual escribe #state y #updateState)
+      function syncPills() {
+        const state = (document.getElementById("state")?.textContent || "").toUpperCase();
+        const dot = document.getElementById("statusDot");
+        if (dot) {
+          dot.classList.remove("good","bad","warn");
+          if (state.includes("RUNNING")) dot.classList.add("good");
+          else if (state.includes("STOP")) dot.classList.add("bad");
+          else dot.classList.add("warn");
+        }
+
+        const upd = (document.getElementById("updateState")?.textContent || "").toLowerCase();
+        const uDot = document.getElementById("updateDot");
+        if (uDot) {
+          uDot.classList.remove("good","bad","warn");
+          if (upd.includes("downloaded")) uDot.classList.add("good");
+          else if (upd.includes("error")) uDot.classList.add("bad");
+          else if (upd.includes("checking") || upd.includes("downloading") || upd.includes("available")) uDot.classList.add("warn");
+        }
+      }
+
+      setInterval(syncPills, 400);
+    </script>
+  </div>
 </body>
 </html>
