@@ -1,4 +1,4 @@
-const ids = ["SUPABASE_URL","SUPABASE_SERVICE_ROLE","DEVICE_UUID","HIK_IP","HIK_USER","HIK_PASS"];
+const ids = ["DEVICE_UUID", "HIK_IP", "HIK_USER", "HIK_PASS"];
 
 function el(id){ return document.getElementById(id); }
 
@@ -29,9 +29,6 @@ function setUpdateUI(state) {
 }
 
 async function load() {
-  const p = await window.ZBridge.configPath();
-  el("configPath").textContent = `Config:\n${p.configPath}\nDir:\n${p.configDir}`;
-
   const cfg = await window.ZBridge.cfgGet();
   ids.forEach(k => { if (cfg[k] != null) el(k).value = String(cfg[k]); });
 
@@ -54,8 +51,8 @@ async function save() {
     return;
   }
 
-  alert("✅ Guardado.\n\n" + res.configPath);
-  appendLog("✅ Guardado config en: " + res.configPath);
+  alert("✅ Guardado.");
+  appendLog("✅ Config guardada.");
 
   await load();
 }
