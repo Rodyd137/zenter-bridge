@@ -1,8 +1,9 @@
 {
   "SUPABASE_URL": "https://zeucdfkwrdrskmypqpwt.supabase.co",
-  "SUPABASE_SERVICE_ROLE": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpldWNkZmt3cmRyc2tteXBxcHd0Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NTIwODg5MywiZXhwIjoyMDgwNzg0ODkzfQ.oD9rlmtmEHQ-14K3dh4IwVmbwkRLj0ul6q2stTOex9Y"
-set DEVICE_ID=DSK1A8503EF",
-  "DEVICE_UUID": "5c736c7e-17dd-4c5f-9d07-1700a10ae83a",
+  "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpldWNkZmt3cmRyc2tteXBxcHd0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUyMDg4OTMsImV4cCI6MjA4MDc4NDg5M30.1Y2lfH34eO_peuvbYjJAgezkWDKDDOwayzr9QTk3aVI",
+  "DEVICE_UUID": "",
+  "DEVICE_KEY": "",
+  "ENROLL_TOKEN": "",
 
   "HIK_IP": "192.168.20.170",
   "HIK_USER": "admin",

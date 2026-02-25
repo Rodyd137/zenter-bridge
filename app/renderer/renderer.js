@@ -1,4 +1,5 @@
-const ids = ["DEVICE_UUID", "HIK_IP", "HIK_USER", "HIK_PASS"];
+const ids = ["DEVICE_UUID", "ENROLL_TOKEN", "HIK_IP", "HIK_USER", "HIK_PASS"];
+const saveIds = ["HIK_IP", "HIK_USER", "HIK_PASS"];
 
 function el(id){ return document.getElementById(id); }
 
@@ -41,7 +42,7 @@ async function load() {
 
 async function save() {
   const cfg = await window.ZBridge.cfgGet();
-  ids.forEach(k => cfg[k] = el(k).value.trim());
+  saveIds.forEach(k => cfg[k] = el(k).value.trim());
 
   const res = await window.ZBridge.cfgSet(cfg);
 
@@ -64,6 +65,26 @@ el("btnSave").onclick = () => save().catch(e => alert("save error: " + e.message
 el("btnStart").onclick = () => window.ZBridge.bridgeStart();
 el("btnStop").onclick = () => window.ZBridge.bridgeStop();
 el("btnRestart").onclick = () => window.ZBridge.bridgeRestart();
+const btnEnroll = el("btnEnroll");
+if (btnEnroll) {
+  btnEnroll.onclick = async () => {
+    try {
+      const token = el("ENROLL_TOKEN")?.value?.trim();
+      if (!token) return alert("Falta el token de activación.");
+      const res = await window.ZBridge.bridgeEnroll(token);
+      if (!res || !res.ok) {
+        alert("No se pudo registrar.\n\n" + (res?.error || "unknown_error"));
+        appendLog("ERR: enroll failed -> " + (res?.error || "unknown_error"));
+        return;
+      }
+      el("ENROLL_TOKEN").value = "";
+      appendLog("✅ Dispositivo registrado: " + res.device_id);
+      await load();
+    } catch (e) {
+      alert("enroll error: " + e.message);
+    }
+  };
+}
 
 // Updates buttons (si existen en el HTML)
 const btnUpdateCheck = el("btnUpdateCheck");

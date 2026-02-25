@@ -75,9 +75,11 @@ function resolveIconPath() {
 // =============================
 function defaultCfg() {
   return {
-    SUPABASE_URL: "",
-    SUPABASE_SERVICE_ROLE: "",
+    SUPABASE_URL: "https://zeucdfkwrdrskmypqpwt.supabase.co",
+    SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpldWNkZmt3cmRyc2tteXBxcHd0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUyMDg4OTMsImV4cCI6MjA4MDc4NDg5M30.1Y2lfH34eO_peuvbYjJAgezkWDKDDOwayzr9QTk3aVI",
     DEVICE_UUID: "",
+    DEVICE_KEY: "",
+    ENROLL_TOKEN: "",
 
     HIK_IP: "192.168.20.170",
     HIK_USER: "admin",
@@ -136,7 +138,9 @@ function readConfig() {
   try {
     const raw = fs.readFileSync(CONFIG_PATH, "utf8");
     const cfg = JSON.parse(raw);
-    return { ...defaultCfg(), ...cfg };
+    const merged = { ...defaultCfg(), ...cfg };
+    if ("SUPABASE_SERVICE_ROLE" in merged) delete merged.SUPABASE_SERVICE_ROLE;
+    return merged;
   } catch (e) {
     dialog.showErrorBox(APP_NAME, `config.json roto o inválido:\n${CONFIG_PATH}\n\n${e.message}`);
     return { ...defaultCfg() };
@@ -146,6 +150,7 @@ function readConfig() {
 async function writeConfig(cfg) {
   ensureConfig();
   const merged = { ...defaultCfg(), ...(cfg || {}) };
+  if ("SUPABASE_SERVICE_ROLE" in merged) delete merged.SUPABASE_SERVICE_ROLE;
 
   const tmp = CONFIG_PATH + ".tmp";
   await fsp.writeFile(tmp, JSON.stringify(merged, null, 2), "utf8");
@@ -189,9 +194,61 @@ function stopBridge() {
 function missingCoreFields(cfg) {
   const missing = [];
   if (!cfg.SUPABASE_URL) missing.push("SUPABASE_URL");
-  if (!cfg.SUPABASE_SERVICE_ROLE) missing.push("SUPABASE_SERVICE_ROLE");
+  if (!cfg.SUPABASE_ANON_KEY) missing.push("SUPABASE_ANON_KEY");
   if (!cfg.DEVICE_UUID) missing.push("DEVICE_UUID");
+  if (!cfg.DEVICE_KEY) missing.push("DEVICE_KEY");
   return missing;
+}
+
+async function edgePost(cfg, fn, payload) {
+  const url = `${cfg.SUPABASE_URL}/functions/v1/${fn}`;
+  const r = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: cfg.SUPABASE_ANON_KEY || "",
+      Authorization: `Bearer ${cfg.SUPABASE_ANON_KEY || ""}`,
+    },
+    body: JSON.stringify(payload || {}),
+  });
+  let data = null;
+  try {
+    data = await r.json();
+  } catch {
+    data = { error: "invalid_json" };
+  }
+  if (!r.ok || data?.ok === false) {
+    return { ok: false, error: data?.error || `http_${r.status}` };
+  }
+  return { ok: true, data };
+}
+
+async function enrollDevice(token) {
+  const cfg = readConfig();
+  if (!cfg.SUPABASE_URL) return { ok: false, error: "missing_supabase_url" };
+  if (!token) return { ok: false, error: "missing_token" };
+
+  const res = await edgePost(cfg, "bridgeEnrollDevice", {
+    token,
+    device_ip: cfg.HIK_IP,
+    device_name: cfg.HIK_IP || "Dispositivo",
+    bridge_id: cfg.BRIDGE_ID || os.hostname(),
+  });
+
+  if (!res.ok) return res;
+
+  const device_id = String(res.data?.device_id || "");
+  const device_key = String(res.data?.device_key || "");
+  if (!device_id || !device_key) return { ok: false, error: "invalid_enroll_response" };
+
+  const saved = await writeConfig({
+    ...cfg,
+    DEVICE_UUID: device_id,
+    DEVICE_KEY: device_key,
+    ENROLL_TOKEN: "",
+  });
+
+  return { ok: true, device_id, saved };
 }
 
 function startBridge() {
@@ -201,8 +258,9 @@ function startBridge() {
   console.log("CONFIG_PATH =", CONFIG_PATH);
   console.log("CFG(core) =", {
     SUPABASE_URL: cfg.SUPABASE_URL ? "[OK]" : "",
-    SUPABASE_SERVICE_ROLE: cfg.SUPABASE_SERVICE_ROLE ? "[OK]" : "",
-    DEVICE_UUID: cfg.DEVICE_UUID || ""
+    SUPABASE_ANON_KEY: cfg.SUPABASE_ANON_KEY ? "[OK]" : "",
+    DEVICE_UUID: cfg.DEVICE_UUID || "",
+    DEVICE_KEY: cfg.DEVICE_KEY ? "[OK]" : ""
   });
 
   const missing = missingCoreFields(cfg);
@@ -421,7 +479,9 @@ ipcMain.handle("cfg:get", () => readConfig());
 ipcMain.handle("cfg:set", async (_evt, cfg) => {
   try {
     const saved = await writeConfig(cfg);
-    return { ok: true, configPath: CONFIG_PATH, saved };
+    const wasRunning = isBridgeRunning();
+    if (wasRunning) restartBridge();
+    return { ok: true, configPath: CONFIG_PATH, saved, restarted: wasRunning };
   } catch (e) {
     return { ok: false, configPath: CONFIG_PATH, error: e.message };
   }
@@ -431,6 +491,18 @@ ipcMain.handle("bridge:start", () => startBridge());
 ipcMain.handle("bridge:stop", () => stopBridge());
 ipcMain.handle("bridge:restart", () => restartBridge());
 ipcMain.handle("bridge:running", () => ({ running: isBridgeRunning() }));
+ipcMain.handle("bridge:enroll", async (_evt, token) => {
+  try {
+    const res = await enrollDevice(String(token || "").trim());
+    if (res?.ok) {
+      if (isBridgeRunning()) restartBridge();
+      else startBridge();
+    }
+    return res;
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
 ipcMain.handle("paths:config", () => ({ configPath: CONFIG_PATH, configDir: CONFIG_DIR }));
 
 ipcMain.handle("updates:check", () => { triggerUpdateCheck(true); return { ok: true }; });

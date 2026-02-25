@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld("ZBridge", {
   bridgeStop: () => ipcRenderer.invoke("bridge:stop"),
   bridgeRestart: () => ipcRenderer.invoke("bridge:restart"),
   bridgeRunning: () => ipcRenderer.invoke("bridge:running"),
+  bridgeEnroll: (token) => ipcRenderer.invoke("bridge:enroll", token),
 
   // Paths
   configPath: () => ipcRenderer.invoke("paths:config"),

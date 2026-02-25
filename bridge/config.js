@@ -10,14 +10,21 @@ const os = require("os");
 const fs = require("fs");
 const fsp = require("fs/promises");
 
-const ROOT_DIR = path.join(process.env.ProgramData || "C:\\ProgramData", "ZenterBridge");
-const CONFIG_PATH = path.join(ROOT_DIR, "config.json");
+let ROOT_DIR = path.join(process.env.ProgramData || "C:\\ProgramData", "ZenterBridge");
+let CONFIG_PATH = path.join(ROOT_DIR, "config.json");
+const ENV_CONFIG_PATH = process.env.ZENTER_CONFIG || process.env.ZB_CONFIG_PATH || "";
+if (ENV_CONFIG_PATH) {
+  CONFIG_PATH = ENV_CONFIG_PATH;
+  ROOT_DIR = path.dirname(CONFIG_PATH);
+}
 
 const DEFAULT_CONFIG = {
   // Supabase
   SUPABASE_URL: "https://zeucdfkwrdrskmypqpwt.supabase.co",
-  SUPABASE_SERVICE_ROLE: "",
+  SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpldWNkZmt3cmRyc2tteXBxcHd0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUyMDg4OTMsImV4cCI6MjA4MDc4NDg5M30.1Y2lfH34eO_peuvbYjJAgezkWDKDDOwayzr9QTk3aVI",
   DEVICE_UUID: "",
+  DEVICE_KEY: "",
+  ENROLL_TOKEN: "",
 
   // Hikvision
   HIK_IP: "192.168.20.170",
@@ -163,8 +170,10 @@ function normalizeConfig(cfg) {
 
   [
     "SUPABASE_URL",
-    "SUPABASE_SERVICE_ROLE",
+    "SUPABASE_ANON_KEY",
     "DEVICE_UUID",
+    "DEVICE_KEY",
+    "ENROLL_TOKEN",
     "HIK_IP",
     "HIK_USER",
     "HIK_PASS",
@@ -246,8 +255,10 @@ function applyConfigToEnv(cfg) {
   };
 
   set("SUPABASE_URL", c.SUPABASE_URL);
-  set("SUPABASE_SERVICE_ROLE", c.SUPABASE_SERVICE_ROLE);
+  set("SUPABASE_ANON_KEY", c.SUPABASE_ANON_KEY);
   set("DEVICE_UUID", c.DEVICE_UUID);
+  set("DEVICE_KEY", c.DEVICE_KEY);
+  set("ENROLL_TOKEN", c.ENROLL_TOKEN);
 
   set("HIK_IP", c.HIK_IP);
   set("HIK_USER", c.HIK_USER);
