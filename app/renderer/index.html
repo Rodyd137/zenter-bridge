@@ -8,25 +8,26 @@
 
   <style>
     :root{
-      --bg0:#f5f7fb;
-      --bg1:#eef2f8;
+      /* Zenter Portal theme */
+      --bg0:#f6f7fb;
+      --bg1:#eef2ff;
       --panel: rgba(255,255,255,.84);
       --card: rgba(255,255,255,.92);
-      --text:#0b1320;
-      --muted:#5a6b7b;
-      --line: rgba(11,19,32,.12);
-      --soft: rgba(11,19,32,.06);
-      --shadow: 0 14px 36px rgba(11,19,32,.12);
-      --shadow2: 0 8px 18px rgba(11,19,32,.10);
+      --text:#0f172a;
+      --muted:#64748b;
+      --line:#e5e7eb;
+      --soft: rgba(15,23,42,.06);
+      --shadow: 0 14px 36px rgba(15,23,42,.12);
+      --shadow2: 0 8px 18px rgba(15,23,42,.10);
       --radius:18px;
       --radius2:14px;
 
-      --accent:#0ea5a4;   /* teal */
-      --accent2:#f59e0b;  /* amber */
+      --accent:#4f46e5;   /* z-brand */
+      --accent2:#38bdf8;  /* z-brand-accent */
       --good:#16a34a;
       --bad:#dc2626;
       --warn:#f59e0b;
-      --focus: 0 0 0 4px rgba(14,165,164,.18);
+      --focus: 0 0 0 4px rgba(79,70,229,.18);
     }
 
     * { box-sizing:border-box; }
@@ -35,8 +36,8 @@
       font-family: "Space Grotesk", "Sora", "Segoe UI", system-ui, sans-serif;
       color: var(--text);
       background:
-        radial-gradient(900px 420px at 8% 0%, rgba(14,165,164,.18), transparent 58%),
-        radial-gradient(800px 420px at 92% 12%, rgba(245,158,11,.16), transparent 60%),
+        radial-gradient(900px 420px at 8% 0%, rgba(79,70,229,.16), transparent 58%),
+        radial-gradient(800px 420px at 92% 12%, rgba(56,189,248,.18), transparent 60%),
         linear-gradient(180deg, var(--bg0), var(--bg1));
     }
 
@@ -73,8 +74,8 @@
       border-radius: 12px;
       position: relative;
       overflow:hidden;
-      background: linear-gradient(145deg, rgba(14,165,164,.18), rgba(245,158,11,.12));
-      border: 1px solid rgba(14,165,164,.2);
+      background: linear-gradient(145deg, rgba(79,70,229,.18), rgba(56,189,248,.14));
+      border: 1px solid rgba(79,70,229,.22);
       box-shadow: var(--shadow2);
     }
     .logo img{
@@ -147,7 +148,7 @@
     .card h2{
       margin: 0;
       font-size: 14px;
-      color: rgba(11,19,32,.92);
+      color: var(--text);
       letter-spacing: .2px;
     }
 
@@ -268,12 +269,12 @@
     .btn:disabled{ opacity:.55; cursor:not-allowed; transform:none; }
 
     .btn.primary{
-      border-color: rgba(14,165,164,.35);
-      background: linear-gradient(135deg, rgba(14,165,164,.18), rgba(245,158,11,.14));
-      color: rgba(11,19,32,.95);
+      border-color: rgba(79,70,229,.35);
+      background: linear-gradient(135deg, rgba(79,70,229,.18), rgba(56,189,248,.16));
+      color: var(--text);
     }
     .btn.primary:hover{
-      background: linear-gradient(135deg, rgba(14,165,164,.26), rgba(245,158,11,.18));
+      background: linear-gradient(135deg, rgba(79,70,229,.26), rgba(56,189,248,.20));
     }
 
     .btn.danger{
@@ -346,7 +347,7 @@
         </div>
         <div>
           <h1>Zenter Bridge</h1>
-          <div class="sub">Hikvision alertStream -> Supabase · Multi-dispositivo · Offline queue</div>
+          <div class="sub">&nbsp;</div>
         </div>
       </div>
 
@@ -358,7 +359,7 @@
 
         <div class="pill" id="updatePill">
           <span class="dot" id="updateDot"></span>
-          <span id="updateState">Updates: Inactive</span>
+          <span id="updateState">Actualizaciones: Inactivo</span>
         </div>
       </div>
     </header>
@@ -381,7 +382,6 @@
 
         <div class="meta-row">
           <div class="meta-pill">Configurados: <span id="devicesCount">0</span></div>
-          <div class="meta-pill mono">Config: <span id="configPath">—</span></div>
         </div>
 
         <div id="devicesList" class="devices-list"></div>
@@ -390,20 +390,20 @@
       <section class="card">
         <div class="card-head">
           <div>
-            <h2>System</h2>
-            <div class="subtext">Updates + runtime</div>
+            <h2>Sistema</h2>
+            <div class="subtext">Actualizaciones y estado</div>
           </div>
         </div>
 
         <div class="row">
-          <button class="btn" id="btnUpdateCheck">Check updates</button>
-          <button class="btn primary" id="btnUpdateInstall" disabled>Install update</button>
-          <button class="btn ghost" id="btnClearLogs">Clear logs</button>
+          <button class="btn" id="btnUpdateCheck">Buscar actualizaciones</button>
+          <button class="btn primary" id="btnUpdateInstall" disabled>Instalar actualizaciÃ³n</button>
+          <button class="btn ghost" id="btnClearLogs">Limpiar logs</button>
         </div>
 
         <div class="logwrap" style="margin-top:12px">
           <div class="loghead">
-            <div class="small muted">Logs</div>
+            <div class="small muted">Registros</div>
             <div class="small muted">Se guardan en memoria (panel)</div>
           </div>
           <pre id="logs"></pre>
@@ -427,8 +427,8 @@
         const dot = document.getElementById("statusDot");
         if (dot) {
           dot.classList.remove("good","bad","warn");
-          if (state.includes("RUNNING")) dot.classList.add("good");
-          else if (state.includes("STOP")) dot.classList.add("bad");
+          if (state.includes("RUNNING") || state.includes("ACTIVO")) dot.classList.add("good");
+          else if (state.includes("STOP") || state.includes("DETENIDO")) dot.classList.add("bad");
           else dot.classList.add("warn");
         }
 
@@ -436,9 +436,16 @@
         const uDot = document.getElementById("updateDot");
         if (uDot) {
           uDot.classList.remove("good","bad","warn");
-          if (upd.includes("downloaded")) uDot.classList.add("good");
+          if (upd.includes("downloaded") || upd.includes("descarg")) uDot.classList.add("good");
           else if (upd.includes("error")) uDot.classList.add("bad");
-          else if (upd.includes("checking") || upd.includes("downloading") || upd.includes("available")) uDot.classList.add("warn");
+          else if (
+            upd.includes("checking") ||
+            upd.includes("downloading") ||
+            upd.includes("available") ||
+            upd.includes("buscando") ||
+            upd.includes("descargando") ||
+            upd.includes("disponible")
+          ) uDot.classList.add("warn");
         }
       }
 

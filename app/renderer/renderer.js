@@ -28,7 +28,17 @@ function appendLog(msg) {
 function setUpdateUI(state) {
   const s = String(state || "idle");
   const label = el("updateState");
-  if (label) label.textContent = "Updates: " + s.toUpperCase();
+  if (label) {
+    const map = {
+      idle: "INACTIVO",
+      checking: "BUSCANDO",
+      available: "DISPONIBLE",
+      downloading: "DESCARGANDO",
+      downloaded: "DESCARGADA",
+      error: "ERROR"
+    };
+    label.textContent = "Actualizaciones: " + (map[s] || s.toUpperCase());
+  }
 
   const btnCheck = el("btnUpdateCheck");
   const btnInstall = el("btnUpdateInstall");
@@ -146,16 +156,16 @@ function setStateLabel(st) {
   const elState = el("state");
   if (!elState) return;
   if (!st) {
-    elState.textContent = "STOPPED";
+    elState.textContent = "DETENIDO";
     return;
   }
   const running = !!st.running;
   const count = Number(st.count || 0);
   const total = Number(st.total || 0);
   if (running) {
-    elState.textContent = total ? `RUNNING (${count}/${total})` : "RUNNING";
+    elState.textContent = total ? `ACTIVO (${count}/${total})` : "ACTIVO";
   } else {
-    elState.textContent = total ? `STOPPED (0/${total})` : "STOPPED";
+    elState.textContent = total ? `DETENIDO (0/${total})` : "DETENIDO";
   }
 }
 
@@ -166,10 +176,6 @@ async function load() {
 
   const st = await window.ZBridge.bridgeRunning();
   setStateLabel(st);
-
-  const paths = await window.ZBridge.configPath();
-  const pathEl = el("configPath");
-  if (pathEl) pathEl.textContent = paths?.configPath || "—";
 
   setUpdateUI("idle");
 }
@@ -269,7 +275,7 @@ const btnUpdateCheck = el("btnUpdateCheck");
 if (btnUpdateCheck) {
   btnUpdateCheck.onclick = async () => {
     try {
-      appendLog("Checking updates...");
+      appendLog("Buscando actualizaciones...");
       await window.ZBridge.updatesCheck();
     } catch (e) {
       appendLog("ERR: updatesCheck -> " + e.message);
@@ -282,7 +288,7 @@ const btnUpdateInstall = el("btnUpdateInstall");
 if (btnUpdateInstall) {
   btnUpdateInstall.onclick = async () => {
     try {
-      appendLog("Installing update...");
+      appendLog("Instalando actualizacion...");
       await window.ZBridge.updatesInstall();
     } catch (e) {
       appendLog("ERR: updatesInstall -> " + e.message);
@@ -304,7 +310,7 @@ if (window.ZBridge.onUpdateState) {
   window.ZBridge.onUpdateState((st) => {
     const state = st?.state || "idle";
     setUpdateUI(state);
-    appendLog("Update state: " + state);
+    appendLog("Estado actualizacion: " + state);
   });
 }
 
