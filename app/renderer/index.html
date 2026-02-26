@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Zenter Bridge</title>
+  <link rel="icon" href="assets/icon.ico" />
 
   <style>
     :root{
@@ -75,16 +76,13 @@
       height: 36px;
       border-radius: 12px;
       position: relative;
-      background: radial-gradient(18px 18px at 30% 28%, rgba(255,255,255,.95), rgba(255,255,255,.0) 55%),
-                  linear-gradient(135deg, rgba(37,99,235,.95), rgba(124,58,237,.90));
-      box-shadow: 0 14px 34px rgba(37,99,235,.18), 0 10px 22px rgba(124,58,237,.12);
       overflow:hidden;
     }
-    .logo:after{
-      content:"";
-      position:absolute; inset:-40%;
-      background: radial-gradient(circle at 30% 30%, rgba(255,255,255,.35), transparent 55%);
-      transform: rotate(15deg);
+    .logo img{
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
     }
 
     .brand h1{
@@ -318,7 +316,9 @@
   <div class="wrap">
     <div class="topbar">
       <div class="brand">
-        <div class="logo" aria-hidden="true"></div>
+        <div class="logo" aria-hidden="true">
+          <img src="assets/logo.png" alt="" />
+        </div>
         <div>
           <h1>Zenter Bridge</h1>
           <div class="sub">Hikvision alertStream -> Supabase - Offline queue - Heartbeat</div>
