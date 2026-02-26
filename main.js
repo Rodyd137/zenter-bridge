@@ -68,8 +68,8 @@ const UI_HTML = path.join(UI_DIR, "index.html");
 // - dev: app/renderer/icon.ico
 // - installed: resources/assets/icon.ico  (por extraResources)
 function resolveIconPath() {
-  if (app.isPackaged) return path.join(process.resourcesPath, "assets", "icon.ico");
-  return path.join(__dirname, "assets", "icon.ico");
+  if (app.isPackaged) return path.join(process.resourcesPath, "assets", "logo.ico");
+  return path.join(__dirname, "assets", "logo.ico");
 }
 
 // =============================
