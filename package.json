@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "zenter-bridge",
   "version": "1.0.14",
   "description": "Zenter Bridge - Hikvision alertStream -> Supabase (offline queue + heartbeat)",
