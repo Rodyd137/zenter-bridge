@@ -20,6 +20,8 @@ const { autoUpdater } = require("electron-updater");
 let tray = null;
 let win = null;
 let bridgeProc = null;
+let bridgeStopRequested = false;
+let bridgeRestartTimer = null;
 
 const APP_NAME = "Zenter Bridge";
 
@@ -183,7 +185,16 @@ function isBridgeRunning() {
   return !!(bridgeProc && !bridgeProc.killed);
 }
 
+function scheduleBridgeRestart() {
+  if (bridgeRestartTimer || app.isQuiting) return;
+  bridgeRestartTimer = setTimeout(() => {
+    bridgeRestartTimer = null;
+    if (!bridgeStopRequested && !isBridgeRunning()) startBridge();
+  }, 5000);
+}
+
 function stopBridge() {
+  bridgeStopRequested = true;
   if (!bridgeProc) return;
   try { bridgeProc.kill(); } catch {}
   bridgeProc = null;
@@ -252,6 +263,11 @@ async function enrollDevice(token) {
 }
 
 function startBridge() {
+  bridgeStopRequested = false;
+  if (bridgeRestartTimer) {
+    clearTimeout(bridgeRestartTimer);
+    bridgeRestartTimer = null;
+  }
   const cfg = readConfig();
 
   // DEBUG (solo consola)
@@ -306,6 +322,7 @@ function startBridge() {
     bridgeProc = null;
     updateTrayMenu();
     if (win) win.webContents.send("bridge-state", { running: false });
+    if (!bridgeStopRequested && !app.isQuiting) scheduleBridgeRestart();
   });
 
   updateTrayMenu();
