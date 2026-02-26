@@ -1,11 +1,12 @@
-// main.js (CommonJS)
+﻿// main.js (CommonJS)
 // ✅ Tray app + Settings window
 // ✅ SINGLE INSTANCE (evita múltiples apps en segundo plano)
 // ✅ Bridge corre como Node dentro del mismo electron.exe (ELECTRON_RUN_AS_NODE=1) → NO duplica
 // ✅ Auto-start con Windows (login) usando --autostart (arranca silencioso)
 // ✅ Auto-update (electron-updater) + menú "Check for updates"
-// ✅ Icon: dev -> app/renderer/icon.ico | instalado -> resources/assets/icon.ico
+// ✅ Icon: dev -> assets/logo.ico | instalado -> resources/assets/logo.ico
 // ✅ Config: ProgramData si se puede, si no userData (fallback)
+// ✅ Multi-device: un mismo Bridge puede manejar múltiples dispositivos
 
 const { app, BrowserWindow, Tray, Menu, ipcMain, dialog, shell } = require("electron");
 const path = require("path");
@@ -19,9 +20,9 @@ const { autoUpdater } = require("electron-updater");
 
 let tray = null;
 let win = null;
-let bridgeProc = null;
 let bridgeStopRequested = false;
-let bridgeRestartTimer = null;
+let bridgeProcs = new Map();
+let lastDeviceCount = 0;
 
 const APP_NAME = "Zenter Bridge";
 
@@ -65,8 +66,8 @@ const UI_DIR = path.join(__dirname, "app", "renderer");
 const UI_HTML = path.join(UI_DIR, "index.html");
 
 // Icon path:
-// - dev: app/renderer/icon.ico
-// - installed: resources/assets/icon.ico  (por extraResources)
+// - dev: assets/logo.ico
+// - installed: resources/assets/logo.ico  (por extraResources)
 function resolveIconPath() {
   if (app.isPackaged) return path.join(process.resourcesPath, "assets", "logo.ico");
   return path.join(__dirname, "assets", "logo.ico");
@@ -99,6 +100,8 @@ function defaultCfg() {
     HEARTBEAT_MS: 15000,
     HEARTBEAT_TABLE: "access_device_heartbeats",
     BRIDGE_VERSION: `zenter-bridge@${app.getVersion()}`,
+
+    DEVICES: [],
   };
 }
 
@@ -135,24 +138,91 @@ function ensureConfig() {
   }
 }
 
+function safeName(s) {
+  return String(s || "")
+    .replace(/[^a-zA-Z0-9._-]+/g, "_")
+    .slice(0, 120) || "device";
+}
+
+function normalizeDevices(cfg) {
+  let devices = Array.isArray(cfg?.DEVICES) ? cfg.DEVICES : [];
+
+  if (!devices.length) {
+    const legacy = {
+      LABEL: String(cfg?.DEVICE_LABEL || "").trim(),
+      DEVICE_UUID: String(cfg?.DEVICE_UUID || "").trim(),
+      DEVICE_KEY: String(cfg?.DEVICE_KEY || "").trim(),
+      ENROLL_TOKEN: String(cfg?.ENROLL_TOKEN || "").trim(),
+      HIK_IP: String(cfg?.HIK_IP || "").trim(),
+      HIK_USER: String(cfg?.HIK_USER || "admin").trim(),
+      HIK_PASS: String(cfg?.HIK_PASS || "").trim(),
+    };
+    if (
+      legacy.DEVICE_UUID ||
+      legacy.DEVICE_KEY ||
+      legacy.HIK_IP ||
+      legacy.ENROLL_TOKEN
+    ) {
+      devices = [legacy];
+    }
+  }
+
+  if (!devices.length) {
+    devices = [{
+      LABEL: "",
+      DEVICE_UUID: "",
+      DEVICE_KEY: "",
+      ENROLL_TOKEN: "",
+      HIK_IP: "",
+      HIK_USER: "admin",
+      HIK_PASS: "",
+    }];
+  }
+
+  return devices.map((d) => ({
+    LABEL: String(d?.LABEL || d?.label || "").trim(),
+    DEVICE_UUID: String(d?.DEVICE_UUID || d?.device_uuid || d?.device_id || "").trim(),
+    DEVICE_KEY: String(d?.DEVICE_KEY || d?.device_key || "").trim(),
+    ENROLL_TOKEN: String(d?.ENROLL_TOKEN || d?.enroll_token || "").trim(),
+    HIK_IP: String(d?.HIK_IP || d?.hik_ip || "").trim(),
+    HIK_USER: String(d?.HIK_USER || d?.hik_user || "admin").trim() || "admin",
+    HIK_PASS: String(d?.HIK_PASS || d?.hik_pass || "").trim(),
+  }));
+}
+
+function normalizeCfgForSave(cfg) {
+  const merged = { ...defaultCfg(), ...(cfg || {}) };
+  const devices = normalizeDevices(merged);
+  merged.DEVICES = devices;
+
+  const first = devices[0] || {};
+  merged.DEVICE_UUID = first.DEVICE_UUID || "";
+  merged.DEVICE_KEY = first.DEVICE_KEY || "";
+  merged.ENROLL_TOKEN = first.ENROLL_TOKEN || "";
+  merged.HIK_IP = first.HIK_IP || "";
+  merged.HIK_USER = first.HIK_USER || "admin";
+  merged.HIK_PASS = first.HIK_PASS || "";
+
+  if ("SUPABASE_SERVICE_ROLE" in merged) delete merged.SUPABASE_SERVICE_ROLE;
+  return merged;
+}
+
 function readConfig() {
   ensureConfig();
   try {
     const raw = fs.readFileSync(CONFIG_PATH, "utf8");
     const cfg = JSON.parse(raw);
-    const merged = { ...defaultCfg(), ...cfg };
-    if ("SUPABASE_SERVICE_ROLE" in merged) delete merged.SUPABASE_SERVICE_ROLE;
+    const merged = normalizeCfgForSave(cfg);
     return merged;
   } catch (e) {
     dialog.showErrorBox(APP_NAME, `config.json roto o inválido:\n${CONFIG_PATH}\n\n${e.message}`);
-    return { ...defaultCfg() };
+    return normalizeCfgForSave({});
   }
 }
 
 async function writeConfig(cfg) {
   ensureConfig();
-  const merged = { ...defaultCfg(), ...(cfg || {}) };
-  if ("SUPABASE_SERVICE_ROLE" in merged) delete merged.SUPABASE_SERVICE_ROLE;
+  const merged = normalizeCfgForSave(cfg || {});
 
   const tmp = CONFIG_PATH + ".tmp";
   await fsp.writeFile(tmp, JSON.stringify(merged, null, 2), "utf8");
@@ -179,35 +249,203 @@ function setupAutoLaunch() {
 }
 
 // =============================
-// Bridge process
+// Bridge process (multi-device)
 // =============================
-function isBridgeRunning() {
-  return !!(bridgeProc && !bridgeProc.killed);
+function runningCount() {
+  let n = 0;
+  for (const entry of bridgeProcs.values()) {
+    if (entry?.proc && !entry.proc.killed) n += 1;
+  }
+  return n;
 }
 
-function scheduleBridgeRestart() {
-  if (bridgeRestartTimer || app.isQuiting) return;
-  bridgeRestartTimer = setTimeout(() => {
-    bridgeRestartTimer = null;
-    if (!bridgeStopRequested && !isBridgeRunning()) startBridge();
+function isBridgeRunning() {
+  return runningCount() > 0;
+}
+
+function deviceLabel(device, index) {
+  return device?.LABEL || device?.HIK_IP || device?.DEVICE_UUID || `Device ${index + 1}`;
+}
+
+function isDeviceReady(device) {
+  return !!(device?.DEVICE_UUID && device?.DEVICE_KEY && device?.HIK_IP);
+}
+
+function missingCoreFields(devices) {
+  const missing = [];
+  devices.forEach((d, i) => {
+    const label = deviceLabel(d, i);
+    if (!d.HIK_IP) missing.push(`${label}: HIK_IP`);
+    if (!d.DEVICE_UUID) missing.push(`${label}: DEVICE_UUID`);
+    if (!d.DEVICE_KEY) missing.push(`${label}: DEVICE_KEY`);
+  });
+  return missing;
+}
+
+async function writeDeviceConfig(cfg, device, index) {
+  const name = safeName(device?.DEVICE_UUID || device?.LABEL || `device_${index + 1}`);
+  const dir = path.join(CONFIG_DIR, "devices", name);
+  await fsp.mkdir(dir, { recursive: true });
+
+  const file = path.join(dir, "config.json");
+  const payload = {
+    SUPABASE_URL: cfg.SUPABASE_URL,
+    SUPABASE_ANON_KEY: cfg.SUPABASE_ANON_KEY,
+    DEVICE_UUID: device.DEVICE_UUID,
+    DEVICE_KEY: device.DEVICE_KEY,
+    ENROLL_TOKEN: "",
+
+    HIK_IP: device.HIK_IP,
+    HIK_USER: device.HIK_USER || "admin",
+    HIK_PASS: device.HIK_PASS || "",
+
+    SUPABASE_TABLE: cfg.SUPABASE_TABLE || "access_events",
+    START_MODE: cfg.START_MODE || "now",
+
+    RECONNECT_MS: cfg.RECONNECT_MS ?? 1500,
+    CURL_VERBOSE: cfg.CURL_VERBOSE ?? 0,
+    FLUSH_INTERVAL_MS: cfg.FLUSH_INTERVAL_MS ?? 5000,
+    INSERT_CONCURRENCY: cfg.INSERT_CONCURRENCY ?? 3,
+
+    BRIDGE_ID: cfg.BRIDGE_ID || os.hostname(),
+    HEARTBEAT_MS: cfg.HEARTBEAT_MS ?? 15000,
+    HEARTBEAT_TABLE: cfg.HEARTBEAT_TABLE || "access_device_heartbeats",
+    BRIDGE_VERSION: `zenter-bridge@${app.getVersion()}`,
+  };
+
+  await fsp.writeFile(file, JSON.stringify(payload, null, 2), "utf8");
+  return file;
+}
+
+function stopAllProcs() {
+  for (const entry of bridgeProcs.values()) {
+    if (entry?.restartTimer) {
+      clearTimeout(entry.restartTimer);
+      entry.restartTimer = null;
+    }
+    try { entry?.proc?.kill(); } catch {}
+  }
+  bridgeProcs.clear();
+}
+
+function scheduleDeviceRestart(id) {
+  const entry = bridgeProcs.get(id);
+  if (!entry || entry.restartTimer || app.isQuiting) return;
+  entry.restartTimer = setTimeout(() => {
+    entry.restartTimer = null;
+    if (!bridgeStopRequested) startDevice(entry.device, entry.index, entry.cfg);
   }, 5000);
+}
+
+function startDevice(device, index, cfg) {
+  const deviceId = device?.DEVICE_UUID || `idx-${index}`;
+  if (!isDeviceReady(device)) return;
+
+  if (bridgeProcs.has(deviceId)) {
+    const existing = bridgeProcs.get(deviceId);
+    if (existing?.proc && !existing.proc.killed) return;
+  }
+
+  writeDeviceConfig(cfg, device, index)
+    .then((deviceConfigPath) => {
+      const env = {
+        ...process.env,
+        ZB_CONFIG_PATH: deviceConfigPath,
+        ELECTRON_RUN_AS_NODE: "1"
+      };
+
+      const proc = spawn(process.execPath, [BRIDGE_PATH], {
+        env,
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "pipe"]
+      });
+
+      const label = deviceLabel(device, index);
+      const entry = { proc, device, index, cfg, label, configPath: deviceConfigPath, restartTimer: null };
+      bridgeProcs.set(deviceId, entry);
+
+      proc.stdout.on("data", (d) => {
+        const s = d.toString("utf8").trim();
+        if (s) console.log(`[${label}]`, s);
+        if (win && s) win.webContents.send("bridge-log", `[${label}] ${s}`);
+      });
+
+      proc.stderr.on("data", (d) => {
+        const s = d.toString("utf8").trim();
+        if (s) console.error(`[${label}]`, s);
+        if (win && s) win.webContents.send("bridge-log", `[${label}] ERR: ${s}`);
+      });
+
+      proc.on("close", () => {
+        const cur = bridgeProcs.get(deviceId);
+        if (cur && cur.proc === proc) {
+          cur.proc = null;
+        }
+        updateTrayMenu();
+        if (win) win.webContents.send("bridge-state", bridgeState());
+        if (!bridgeStopRequested && !app.isQuiting) scheduleDeviceRestart(deviceId);
+      });
+
+      updateTrayMenu();
+      if (win) win.webContents.send("bridge-state", bridgeState());
+    })
+    .catch((e) => {
+      console.error("device start error:", e.message);
+    });
+}
+
+function startBridge() {
+  bridgeStopRequested = false;
+  stopAllProcs();
+
+  const cfg = readConfig();
+  const devices = normalizeDevices(cfg);
+  lastDeviceCount = devices.length;
+
+  const ready = devices.filter((d) => isDeviceReady(d));
+  const missing = devices.filter((d) => !isDeviceReady(d));
+
+  if (!ready.length) {
+    const miss = missingCoreFields(devices);
+    dialog.showErrorBox(
+      APP_NAME,
+      `Faltan settings para iniciar el Bridge.\n\n${miss.join("\n")}\n\nConfig file:\n${CONFIG_PATH}`
+    );
+    if (win) win.show();
+    return;
+  }
+
+  if (missing.length && win) {
+    const list = missingCoreFields(missing);
+    win.webContents.send("bridge-log", `WARN: Dispositivos incompletos (no iniciaron): ${list.join(" | ")}`);
+  }
+
+  ready.forEach((d, i) => startDevice(d, i, cfg));
 }
 
 function stopBridge() {
   bridgeStopRequested = true;
-  if (!bridgeProc) return;
-  try { bridgeProc.kill(); } catch {}
-  bridgeProc = null;
+  stopAllProcs();
   updateTrayMenu();
-  if (win) win.webContents.send("bridge-state", { running: false });
+  if (win) win.webContents.send("bridge-state", bridgeState());
 }
 
-function missingCoreFields(cfg) {
+function restartBridge() {
+  stopBridge();
+  setTimeout(() => startBridge(), 400);
+}
+
+function bridgeState() {
+  return {
+    running: isBridgeRunning(),
+    count: runningCount(),
+    total: lastDeviceCount || 0
+  };
+}
+
+function missingCoreFieldsForEnroll(device) {
   const missing = [];
-  if (!cfg.SUPABASE_URL) missing.push("SUPABASE_URL");
-  if (!cfg.SUPABASE_ANON_KEY) missing.push("SUPABASE_ANON_KEY");
-  if (!cfg.DEVICE_UUID) missing.push("DEVICE_UUID");
-  if (!cfg.DEVICE_KEY) missing.push("DEVICE_KEY");
+  if (!device?.HIK_IP) missing.push("HIK_IP");
   return missing;
 }
 
@@ -234,15 +472,17 @@ async function edgePost(cfg, fn, payload) {
   return { ok: true, data };
 }
 
-async function enrollDevice(token) {
-  const cfg = readConfig();
-  if (!cfg.SUPABASE_URL) return { ok: false, error: "missing_supabase_url" };
+async function enrollDeviceFor(token, device, cfg) {
+  if (!cfg?.SUPABASE_URL) return { ok: false, error: "missing_supabase_url" };
   if (!token) return { ok: false, error: "missing_token" };
+
+  const miss = missingCoreFieldsForEnroll(device);
+  if (miss.length) return { ok: false, error: `missing_${miss.join("_")}` };
 
   const res = await edgePost(cfg, "bridgeEnrollDevice", {
     token,
-    device_ip: cfg.HIK_IP,
-    device_name: cfg.HIK_IP || "Dispositivo",
+    device_ip: device.HIK_IP,
+    device_name: device.LABEL || device.HIK_IP || "Dispositivo",
     bridge_id: cfg.BRIDGE_ID || os.hostname(),
   });
 
@@ -252,86 +492,44 @@ async function enrollDevice(token) {
   const device_key = String(res.data?.device_key || "");
   if (!device_id || !device_key) return { ok: false, error: "invalid_enroll_response" };
 
-  const saved = await writeConfig({
-    ...cfg,
-    DEVICE_UUID: device_id,
-    DEVICE_KEY: device_key,
-    ENROLL_TOKEN: "",
-  });
-
-  return { ok: true, device_id, saved };
+  return { ok: true, device_id, device_key };
 }
 
-function startBridge() {
-  bridgeStopRequested = false;
-  if (bridgeRestartTimer) {
-    clearTimeout(bridgeRestartTimer);
-    bridgeRestartTimer = null;
-  }
+async function enrollDeviceByIndex(token, index, deviceOverride) {
   const cfg = readConfig();
+  const devices = normalizeDevices(cfg);
+  const idx = Number.isFinite(index) ? index : 0;
 
-  // DEBUG (solo consola)
-  console.log("CONFIG_PATH =", CONFIG_PATH);
-  console.log("CFG(core) =", {
-    SUPABASE_URL: cfg.SUPABASE_URL ? "[OK]" : "",
-    SUPABASE_ANON_KEY: cfg.SUPABASE_ANON_KEY ? "[OK]" : "",
-    DEVICE_UUID: cfg.DEVICE_UUID || "",
-    DEVICE_KEY: cfg.DEVICE_KEY ? "[OK]" : ""
-  });
-
-  const missing = missingCoreFields(cfg);
-  if (missing.length) {
-    dialog.showErrorBox(
-      APP_NAME,
-      `Faltan settings: ${missing.join(", ")}.\n\nAbre Settings y completa.\n\nConfig file:\n${CONFIG_PATH}`
-    );
-    if (win) win.show();
-    return;
+  while (devices.length <= idx) {
+    devices.push({
+      LABEL: "",
+      DEVICE_UUID: "",
+      DEVICE_KEY: "",
+      ENROLL_TOKEN: "",
+      HIK_IP: "",
+      HIK_USER: "admin",
+      HIK_PASS: "",
+    });
   }
 
-  if (isBridgeRunning()) return;
+  const current = devices[idx] || {};
+  const next = { ...current, ...(deviceOverride || {}) };
 
-  // 🔥 CLAVE: correr el script como Node dentro del electron.exe
-  // Esto evita abrir otro "Zenter Bridge" en segundo plano.
-  const env = {
-    ...process.env,
-    ...cfg,
-    ZENTER_CONFIG: CONFIG_PATH,
-    ELECTRON_RUN_AS_NODE: "1"
-  };
+  const res = await enrollDeviceFor(token, next, cfg);
+  if (!res.ok) return res;
 
-  bridgeProc = spawn(process.execPath, [BRIDGE_PATH], {
-    env,
-    windowsHide: true,
-    stdio: ["ignore", "pipe", "pipe"]
-  });
+  next.DEVICE_UUID = res.device_id;
+  next.DEVICE_KEY = res.device_key;
+  next.ENROLL_TOKEN = "";
 
-  bridgeProc.stdout.on("data", (d) => {
-    const s = d.toString("utf8").trim();
-    if (s) console.log("[bridge]", s);
-    if (win && s) win.webContents.send("bridge-log", s);
-  });
+  devices[idx] = next;
 
-  bridgeProc.stderr.on("data", (d) => {
-    const s = d.toString("utf8").trim();
-    if (s) console.error("[bridge]", s);
-    if (win && s) win.webContents.send("bridge-log", "ERR: " + s);
-  });
+  const saved = await writeConfig({ ...cfg, DEVICES: devices });
 
-  bridgeProc.on("close", () => {
-    bridgeProc = null;
-    updateTrayMenu();
-    if (win) win.webContents.send("bridge-state", { running: false });
-    if (!bridgeStopRequested && !app.isQuiting) scheduleBridgeRestart();
-  });
+  if (isBridgeRunning()) restartBridge();
+  else startBridge();
 
-  updateTrayMenu();
-  if (win) win.webContents.send("bridge-state", { running: true });
-}
-
-function restartBridge() {
-  stopBridge();
-  setTimeout(() => startBridge(), 400);
+  return { ok: true, device_id: res.device_id, saved };
 }
 
 // =============================
@@ -339,8 +537,8 @@ function restartBridge() {
 // =============================
 function createWindow() {
   win = new BrowserWindow({
-    width: 980,
-    height: 700,
+    width: 1100,
+    height: 720,
     show: false,
     resizable: true,
     webPreferences: {
@@ -372,10 +570,15 @@ let updateState = "idle"; // idle | checking | available | downloading | downloa
 function updateTrayMenu() {
   if (!tray) return;
 
-  const running = isBridgeRunning();
+  const count = runningCount();
+  const total = lastDeviceCount || 0;
+  const running = count > 0;
+  const statusLabel = total > 0
+    ? `${APP_NAME} (${running ? "RUNNING" : "STOPPED"}) · ${count}/${total}`
+    : `${APP_NAME} (${running ? "RUNNING" : "STOPPED"})`;
 
   const menu = Menu.buildFromTemplate([
-    { label: `${APP_NAME} (${running ? "RUNNING" : "STOPPED"})`, enabled: false },
+    { label: statusLabel, enabled: false },
     { label: `Updates: ${updateState}`, enabled: false },
     { type: "separator" },
 
@@ -404,7 +607,7 @@ function createTray() {
   if (!fs.existsSync(ICON_PATH)) {
     dialog.showErrorBox(
       APP_NAME,
-      `No encuentro icon.ico en:\n${ICON_PATH}\n\nDev: app\\renderer\\icon.ico\nInstalado: resources\\assets\\icon.ico`
+      `No encuentro logo.ico en:\n${ICON_PATH}\n\nDev: assets\\logo.ico\nInstalado: resources\\assets\\logo.ico`
     );
     win.show();
     return;
@@ -507,19 +710,29 @@ ipcMain.handle("cfg:set", async (_evt, cfg) => {
 ipcMain.handle("bridge:start", () => startBridge());
 ipcMain.handle("bridge:stop", () => stopBridge());
 ipcMain.handle("bridge:restart", () => restartBridge());
-ipcMain.handle("bridge:running", () => ({ running: isBridgeRunning() }));
+ipcMain.handle("bridge:running", () => bridgeState());
+
 ipcMain.handle("bridge:enroll", async (_evt, token) => {
   try {
-    const res = await enrollDevice(String(token || "").trim());
-    if (res?.ok) {
-      if (isBridgeRunning()) restartBridge();
-      else startBridge();
-    }
+    const res = await enrollDeviceByIndex(String(token || "").trim(), 0, null);
     return res;
   } catch (e) {
     return { ok: false, error: e?.message || String(e) };
   }
 });
+
+ipcMain.handle("bridge:enroll-device", async (_evt, payload) => {
+  try {
+    const idx = Number(payload?.index ?? 0);
+    const token = String(payload?.token || "").trim();
+    const device = payload?.device || null;
+    if (!token) return { ok: false, error: "missing_token" };
+    return await enrollDeviceByIndex(token, idx, device);
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
 ipcMain.handle("paths:config", () => ({ configPath: CONFIG_PATH, configDir: CONFIG_DIR }));
 
 ipcMain.handle("updates:check", () => { triggerUpdateCheck(true); return { ok: true }; });

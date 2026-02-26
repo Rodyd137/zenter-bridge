@@ -1,9 +1,10 @@
-// bridge/config.js (CommonJS)
+﻿// bridge/config.js (CommonJS)
 // ✅ Lee/escribe config en C:\ProgramData\ZenterBridge\config.json
 // ✅ Aplica config al env (SIEMPRE) para que cambios del usuario surtan efecto
 // ✅ Soporta JSONC/trailing commas (sin romper http://)
 // ✅ Mantiene defaults + merge sin borrar settings del usuario
 // ✅ IMPORTANTE: NO PEGAR KEYS NI "set ..." AQUI. TODO ESO VA EN config.json
+// ✅ Multi-device: soporta DEVICES[], mantiene compatibilidad con campos legacy
 
 const path = require("path");
 const os = require("os");
@@ -45,7 +46,10 @@ const DEFAULT_CONFIG = {
   BRIDGE_ID: os.hostname(),
   HEARTBEAT_MS: 15000,
   HEARTBEAT_TABLE: "access_device_heartbeats",
-  BRIDGE_VERSION: "zenter-bridge@1.0.0"
+  BRIDGE_VERSION: "zenter-bridge@1.0.0",
+
+  // Multi-device
+  DEVICES: []
 };
 
 function getConfigPath() {
@@ -144,6 +148,18 @@ function parseJsonLenient(text) {
   return JSON.parse(cleaned);
 }
 
+function normalizeDevice(d) {
+  return {
+    LABEL: String(d?.LABEL || d?.label || "").trim(),
+    DEVICE_UUID: String(d?.DEVICE_UUID || d?.device_uuid || d?.device_id || "").trim(),
+    DEVICE_KEY: String(d?.DEVICE_KEY || d?.device_key || "").trim(),
+    ENROLL_TOKEN: String(d?.ENROLL_TOKEN || d?.enroll_token || "").trim(),
+    HIK_IP: String(d?.HIK_IP || d?.hik_ip || "").trim(),
+    HIK_USER: String(d?.HIK_USER || d?.hik_user || "admin").trim() || "admin",
+    HIK_PASS: String(d?.HIK_PASS || d?.hik_pass || "").trim(),
+  };
+}
+
 function normalizeConfig(cfg) {
   const merged = { ...DEFAULT_CONFIG, ...(cfg || {}) };
 
@@ -167,6 +183,34 @@ function normalizeConfig(cfg) {
 
   const sm = String(merged.START_MODE || "now").toLowerCase();
   merged.START_MODE = sm === "all" ? "all" : "now";
+
+  if (!Array.isArray(merged.DEVICES)) merged.DEVICES = [];
+  merged.DEVICES = merged.DEVICES.map(normalizeDevice);
+
+  if (!merged.DEVICES.length) {
+    const legacy = normalizeDevice({
+      LABEL: merged.DEVICE_LABEL || "",
+      DEVICE_UUID: merged.DEVICE_UUID || "",
+      DEVICE_KEY: merged.DEVICE_KEY || "",
+      ENROLL_TOKEN: merged.ENROLL_TOKEN || "",
+      HIK_IP: merged.HIK_IP || "",
+      HIK_USER: merged.HIK_USER || "admin",
+      HIK_PASS: merged.HIK_PASS || "",
+    });
+    if (legacy.DEVICE_UUID || legacy.DEVICE_KEY || legacy.HIK_IP || legacy.ENROLL_TOKEN) {
+      merged.DEVICES = [legacy];
+    }
+  }
+
+  if (merged.DEVICES.length) {
+    const first = merged.DEVICES[0];
+    merged.DEVICE_UUID = first.DEVICE_UUID || merged.DEVICE_UUID || "";
+    merged.DEVICE_KEY = first.DEVICE_KEY || merged.DEVICE_KEY || "";
+    merged.ENROLL_TOKEN = first.ENROLL_TOKEN || merged.ENROLL_TOKEN || "";
+    merged.HIK_IP = first.HIK_IP || merged.HIK_IP || "";
+    merged.HIK_USER = first.HIK_USER || merged.HIK_USER || "admin";
+    merged.HIK_PASS = first.HIK_PASS || merged.HIK_PASS || "";
+  }
 
   [
     "SUPABASE_URL",

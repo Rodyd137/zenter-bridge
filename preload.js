@@ -1,4 +1,4 @@
-// preload.js (CommonJS)
+﻿// preload.js (CommonJS)
 // Exponer API segura al renderer (contextIsolation ON)
 
 const { contextBridge, ipcRenderer } = require("electron");
@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld("ZBridge", {
   bridgeRestart: () => ipcRenderer.invoke("bridge:restart"),
   bridgeRunning: () => ipcRenderer.invoke("bridge:running"),
   bridgeEnroll: (token) => ipcRenderer.invoke("bridge:enroll", token),
+  bridgeEnrollDevice: (payload) => ipcRenderer.invoke("bridge:enroll-device", payload),
 
   // Paths
   configPath: () => ipcRenderer.invoke("paths:config"),
