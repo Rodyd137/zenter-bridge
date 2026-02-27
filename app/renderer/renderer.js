@@ -153,10 +153,12 @@ function deviceCard(d, i) {
       </div>
 
       <div class="device-grid">
+        ${hasDevice ? `
         <div>
           <label>Nombre de dispositivo</label>
           <input class="field" data-field="LABEL" data-index="${i}" ${disabledAttr} placeholder="Nombre del dispositivo" value="${esc(d.LABEL)}" />
         </div>
+        ` : ``}
         <div>
           <label>Dirección IP</label>
           <input class="field" data-field="HIK_IP" data-index="${i}" ${disabledAttr} placeholder="192.168.20.10" value="${esc(d.HIK_IP)}" />
@@ -182,7 +184,7 @@ function deviceCard(d, i) {
         ` : ``}
         ${showEnroll ? `
         <div>
-          <label>ENROLL TOKEN</label>
+          <label>Token de activación</label>
           <input class="field" data-field="ENROLL_TOKEN" data-index="${i}" ${disabledAttr} placeholder="token" value="${esc(d.ENROLL_TOKEN)}" />
         </div>
         ` : ``}
@@ -400,7 +402,8 @@ async function enroll(index) {
 // =====================
 // Buttons
 // =====================
-el("btnSave").onclick = () => save().catch(e => alert("save error: " + e.message));
+const btnSave = el("btnSave");
+if (btnSave) btnSave.onclick = () => save().catch(e => alert("save error: " + e.message));
 const btnStart = el("btnStart");
 if (btnStart) btnStart.onclick = async () => { await window.ZBridge.bridgeStart(); await refreshRunningState(); };
 const btnStop = el("btnStop");
