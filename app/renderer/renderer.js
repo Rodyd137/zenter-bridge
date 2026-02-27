@@ -107,7 +107,10 @@ function deviceKey(d, i) {
 
 function deviceCard(d, i) {
   const idMeta = d.DEVICE_UUID ? d.DEVICE_UUID : "sin registrar";
-  const hasDevice = !!String(d.DEVICE_UUID || "").trim();
+  const hasDevice = !!(
+    String(d.DEVICE_UUID || "").trim() &&
+    String(d.DEVICE_KEY || "").trim()
+  );
   const key = deviceKey(d, i);
   const isEditing = editingKeys.has(key);
   const showAdvanced = !hasDevice || isEditing;
