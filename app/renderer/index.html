@@ -65,7 +65,7 @@
       display:flex;
       align-items:center;
       gap: 12px;
-      min-width: 260px;
+      min-width: 200px;
     }
 
     .logo{
@@ -91,11 +91,6 @@
       letter-spacing:.2px;
       line-height:1.15;
       font-weight: 700;
-    }
-    .brand .sub{
-      margin-top:3px;
-      font-size: 12px;
-      color: var(--muted);
     }
 
     .top-right{
@@ -273,12 +268,12 @@
     .btn:disabled{ opacity:.55; cursor:not-allowed; transform:none; }
 
     .btn.primary{
-      border-color: #2F6FE8;
-      background: #4080FF;
+      border-color: var(--accent);
+      background: var(--accent);
       color: #ffffff;
     }
     .btn.primary:hover{
-      background: #2F6FE8;
+      background: var(--accent);
     }
 
     .btn.danger{
@@ -348,10 +343,7 @@
         <div class="logo" aria-hidden="true">
           <img src="assets/logo.png" alt="" />
         </div>
-        <div>
-          <h1>Zenter Bridge</h1>
-          <div class="sub">&nbsp;</div>
-        </div>
+        <h1>Zenter Bridge</h1>
       </div>
 
       <div class="top-right">
