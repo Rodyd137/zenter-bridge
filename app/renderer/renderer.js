@@ -288,7 +288,7 @@ function setStateLabel(st) {
   const count = Number(st.count || 0);
   const total = Number(st.total || 0);
   if (running) {
-    elState.textContent = total ? `ACTIVO (${count}/${total})` : "ACTIVO";
+    elState.textContent = total ? `Activo (${count}/${total})` : "Activo";
   } else {
     elState.textContent = total ? `DETENIDO (0/${total})` : "DETENIDO";
   }

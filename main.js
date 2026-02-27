@@ -1024,6 +1024,7 @@ function createTray() {
 // Auto Update (electron-updater)
 // =============================
 let updateTimer = null;
+let updateTimerTimeout = null;
 
 function setUpdateState(s) {
   updateState = s;
@@ -1086,11 +1087,24 @@ function triggerUpdateCheck(userInitiated = false) {
 function scheduleUpdateChecks() {
   if (!app.isPackaged) return;
 
-  // cada 10 segundos
-  const MS = 10 * 1000;
+  const MS_WEEK = 7 * 24 * 60 * 60 * 1000;
+  const now = new Date();
+  const target = new Date(now);
+  target.setHours(3, 0, 0, 0);
+  let daysUntil = (7 - now.getDay()) % 7; // 0 = Sunday
+  if (daysUntil === 0 && now >= target) daysUntil = 7;
+  target.setDate(now.getDate() + daysUntil);
+  const delay = Math.max(0, target.getTime() - now.getTime());
+
   if (updateTimer) clearInterval(updateTimer);
-  updateTimer = setInterval(() => triggerUpdateCheck(false), MS);
-  updateTimer.unref();
+  if (updateTimerTimeout) clearTimeout(updateTimerTimeout);
+
+  updateTimerTimeout = setTimeout(() => {
+    triggerUpdateCheck(false);
+    updateTimer = setInterval(() => triggerUpdateCheck(false), MS_WEEK);
+    updateTimer.unref();
+  }, delay);
+  updateTimerTimeout.unref();
 }
 
 // =============================
