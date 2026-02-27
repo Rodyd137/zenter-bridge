@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="es">
 <head>
   <meta charset="utf-8" />
@@ -74,9 +74,9 @@
       border-radius: 12px;
       position: relative;
       overflow:hidden;
-      background: linear-gradient(145deg, rgba(79,70,229,.18), rgba(56,189,248,.14));
-      border: 1px solid rgba(79,70,229,.22);
-      box-shadow: var(--shadow2);
+      background: transparent;
+      border: none;
+      box-shadow: none;
     }
     .logo img{
       width: 100%;
@@ -132,7 +132,7 @@
     .grid{
       margin-top: 14px;
       display:grid;
-      grid-template-columns: 1.2fr .8fr;
+      grid-template-columns: 1fr;
       gap: 14px;
     }
 
@@ -225,6 +225,10 @@
       margin-top: 8px;
     }
 
+    .device-footer{
+      margin-top: 8px;
+    }
+
     label{
       font-size: 12px;
       color: rgba(11,19,32,.86);
@@ -269,12 +273,12 @@
     .btn:disabled{ opacity:.55; cursor:not-allowed; transform:none; }
 
     .btn.primary{
-      border-color: rgba(79,70,229,.35);
-      background: linear-gradient(135deg, rgba(79,70,229,.18), rgba(56,189,248,.16));
-      color: var(--text);
+      border-color: #2F6FE8;
+      background: #4080FF;
+      color: #ffffff;
     }
     .btn.primary:hover{
-      background: linear-gradient(135deg, rgba(79,70,229,.26), rgba(56,189,248,.20));
+      background: #2F6FE8;
     }
 
     .btn.danger{
@@ -332,7 +336,6 @@
     }
 
     @media (max-width: 1000px){
-      .grid{ grid-template-columns: 1fr; }
       .device-grid{ grid-template-columns: 1fr; }
     }
   </style>
@@ -359,7 +362,7 @@
 
         <div class="pill" id="updatePill">
           <span class="dot" id="updateDot"></span>
-          <span id="updateState">Actualizaciones: Inactivo</span>
+          <span id="updateState"></span>
         </div>
       </div>
     </header>
@@ -369,19 +372,15 @@
         <div class="card-head">
           <div>
             <h2>Dispositivos</h2>
-            <div class="subtext">Configura y controla varios equipos desde un solo Bridge.</div>
+            <div class="subtext">Registra tus equipos de control de asistencia aqui.</div>
           </div>
           <div class="actions">
             <button class="btn ghost" id="btnAddDevice">Agregar dispositivo</button>
             <button class="btn primary" id="btnSave">Guardar</button>
-            <button class="btn" id="btnStart">Iniciar</button>
-            <button class="btn danger" id="btnStop">Detener</button>
-            <button class="btn" id="btnRestart">Reiniciar</button>
           </div>
         </div>
 
         <div class="meta-row">
-          <div class="meta-pill">Configurados: <span id="devicesCount">0</span></div>
         </div>
 
         <div id="devicesList" class="devices-list"></div>
@@ -397,7 +396,7 @@
 
         <div class="row">
           <button class="btn" id="btnUpdateCheck">Buscar actualizaciones</button>
-          <button class="btn primary" id="btnUpdateInstall" disabled>Instalar actualizaciÃ³n</button>
+          <button class="btn primary" id="btnUpdateInstall" disabled>Instalar actualizacion</button>
           <button class="btn ghost" id="btnClearLogs">Limpiar logs</button>
         </div>
 
@@ -410,7 +409,7 @@
         </div>
 
         <div class="subtext" style="margin-top:10px">
-          Si el bridge está corriendo bien, verás "Boundary detectado" y eventos cuando haya actividad.
+          Si el bridge esta corriendo bien, veras "Boundary detectado" y eventos cuando haya actividad.
         </div>
       </section>
     </div>
@@ -436,7 +435,8 @@
         const uDot = document.getElementById("updateDot");
         if (uDot) {
           uDot.classList.remove("good","bad","warn");
-          if (upd.includes("downloaded") || upd.includes("descarg")) uDot.classList.add("good");
+          if (upd.includes("actualizado")) uDot.classList.add("good");
+          else if (upd.includes("downloaded") || upd.includes("descarg") || upd.includes("lista")) uDot.classList.add("good");
           else if (upd.includes("error")) uDot.classList.add("bad");
           else if (
             upd.includes("checking") ||
@@ -454,3 +454,4 @@
   </div>
 </body>
 </html>
+

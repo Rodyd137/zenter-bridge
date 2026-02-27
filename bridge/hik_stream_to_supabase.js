@@ -1,4 +1,4 @@
-// hik_stream_to_supabase.js (CommonJS)
+﻿// hik_stream_to_supabase.js (CommonJS)
 // ✅ Hikvision alertStream multipart -> Supabase
 // ✅ OFFLINE-SAFE: guarda eventos en disco (queue/) antes de insertar
 // ✅ Reintenta pendientes automáticamente
@@ -52,6 +52,10 @@ function sleep(ms) {
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function getBridgeTzOffsetMinutes() {
+  return -new Date().getTimezoneOffset();
 }
 
 async function edgePost(fn, payload) {
@@ -121,7 +125,12 @@ async function curlRequest({ method = "GET", url, headers = [], body = null }) {
 }
 
 function xmlTag(xml, tag) {
-  const m = String(xml || "").match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`));
+  const safe = String(tag || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(
+    `<(?:\\w+:)?${safe}[^>]*>([\\s\\S]*?)</(?:\\w+:)?${safe}>`,
+    "i"
+  );
+  const m = String(xml || "").match(re);
   return m ? m[1].trim() : null;
 }
 
@@ -219,12 +228,12 @@ function refreshSettingsFromEnv() {
   JOB_LIMIT = Math.max(1, Number(process.env.JOB_LIMIT || 5));
 
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    console.error("❌ Faltan SUPABASE_URL o SUPABASE_ANON_KEY.");
+    console.error("ERR Faltan SUPABASE_URL o SUPABASE_ANON_KEY.");
     console.error("   Config path:", CONFIG_PATH);
     process.exit(1);
   }
   if (!DEVICE_UUID || !DEVICE_KEY) {
-    console.error("❌ Falta DEVICE_UUID o DEVICE_KEY.");
+    console.error("ERR Falta DEVICE_UUID o DEVICE_KEY.");
     console.error("   Config path:", CONFIG_PATH);
     process.exit(1);
   }
@@ -244,7 +253,7 @@ async function ensureDirs() {
 }
 
 // ---------- Local Queue ----------
-async function writeQueueFile(eventObj, savedAt) {
+async function writeQueueFile(eventObj, savedAt, bridgeTzOffsetMinutes) {
   const serial = eventObj?.AccessControllerEvent?.serialNo ?? null;
   const dt = eventObj?.dateTime ? Date.parse(eventObj.dateTime) : Date.now();
   const ts = new Date(Number.isFinite(dt) ? dt : Date.now()).toISOString().replace(/[:.]/g, "-");
@@ -254,9 +263,13 @@ async function writeQueueFile(eventObj, savedAt) {
   const finalPath = path.join(QUEUE_DIR, file);
   const tmpPath = finalPath + ".tmp";
 
+  const tz = Number.isFinite(bridgeTzOffsetMinutes)
+    ? bridgeTzOffsetMinutes
+    : getBridgeTzOffsetMinutes();
   const payload = {
     saved_at: savedAt || nowIso(),
     device_id: DEVICE_UUID,
+    bridge_tz_offset_minutes: tz,
     raw: eventObj
   };
 
@@ -283,7 +296,7 @@ async function listQueueFiles() {
 }
 
 // ---------- Supabase insert ----------
-async function insertToSupabaseFromRaw(rawPayload, receivedAtIso) {
+async function insertToSupabaseFromRaw(rawPayload, receivedAtIso, bridgeTzOffsetMinutes) {
   if (!rawPayload || rawPayload.eventType !== "AccessControllerEvent") return { ok: true, skipped: true };
 
   const t = receivedAtIso
@@ -311,11 +324,15 @@ async function insertToSupabaseFromRaw(rawPayload, receivedAtIso) {
     raw: rawPayload
   };
 
+  const tz = Number.isFinite(bridgeTzOffsetMinutes)
+    ? bridgeTzOffsetMinutes
+    : getBridgeTzOffsetMinutes();
   const res = await edgePost("bridgeIngestEvents", {
     device_id: DEVICE_UUID,
     device_key: DEVICE_KEY,
     event: rawPayload,
-    received_at: receivedAtIso || null
+    received_at: receivedAtIso || null,
+    bridge_tz_offset_minutes: tz
   });
 
   if (!res.ok) return { ok: false, error: res.error || "insert_failed" };
@@ -371,13 +388,17 @@ async function flushQueueOnce() {
         }
 
         const raw = obj?.raw;
-        const res = await insertToSupabaseFromRaw(raw, obj?.saved_at || null);
+        const res = await insertToSupabaseFromRaw(
+          raw,
+          obj?.saved_at || null,
+          obj?.bridge_tz_offset_minutes
+        );
 
         if (res.ok) {
           await removeOrArchive(file);
           sent += 1;
         } else {
-          console.error("❌ Ingest error (cola):", res.error, "→ se queda en cola:", path.basename(file));
+          console.error("ERR Ingest error (cola):", res.error, "-> se queda en cola:", path.basename(file));
           // backoff pequeño
           await sleep(900);
         }
@@ -865,7 +886,7 @@ async function handleJob(job) {
   const action = String(job?.action || "");
 
   if (action === "upsert") {
-    console.log("[JOB] upsert →", job?.employee_no || job?.employee_id || "");
+    console.log("[JOB] upsert ->", job?.employee_no || job?.employee_id || "");
     const userRes = await ensureUser(job);
     if (!userRes.ok) {
       await completeJob(job, "error", userRes.error, { detail: userRes.detail }, 5);
@@ -884,7 +905,7 @@ async function handleJob(job) {
   }
 
   if (action === "fingerprint_capture") {
-    console.log("[JOB] fingerprint_capture →", job?.employee_no || job?.employee_id || "");
+    console.log("[JOB] fingerprint_capture ->", job?.employee_no || job?.employee_id || "");
     const fingerNo = Number(job?.payload?.finger_no || 1);
     // Asegura que el usuario exista antes de aplicar huella
     const userRes = await ensureUser(job);
@@ -921,7 +942,7 @@ async function handleJob(job) {
   }
 
   if (action === "fingerprint_apply") {
-    console.log("[JOB] fingerprint_apply →", job?.employee_no || job?.employee_id || "");
+    console.log("[JOB] fingerprint_apply ->", job?.employee_no || job?.employee_id || "");
     const fingerNo = Number(job?.payload?.finger_no || 1);
     const userRes = await ensureUser(job);
     if (!userRes.ok) {
@@ -954,7 +975,7 @@ async function handleJob(job) {
 
   if (action === "delete_fingerprint") {
     const fingerNo = Number(job?.payload?.finger_no || 1);
-    console.log("[JOB] delete_fingerprint →", job?.employee_no || job?.employee_id || "", "finger", fingerNo);
+    console.log("[JOB] delete_fingerprint ->", job?.employee_no || job?.employee_id || "", "finger", fingerNo);
     const del = await deleteFingerprint(job, fingerNo);
     if (!del.ok) {
       await completeJob(job, "error", del.error, { detail: del.detail }, 5);
@@ -967,7 +988,7 @@ async function handleJob(job) {
   }
 
   if (action === "clear_card") {
-    console.log("[JOB] clear_card →", job?.employee_no || job?.employee_id || "");
+    console.log("[JOB] clear_card ->", job?.employee_no || job?.employee_id || "");
     const del = await deleteCard(job);
     if (!del.ok) {
       await completeJob(job, "error", del.error, { detail: del.detail }, 5);
@@ -980,7 +1001,7 @@ async function handleJob(job) {
   }
 
   if (action === "delete_user") {
-    console.log("[JOB] delete_user →", job?.employee_no || job?.employee_id || "");
+    console.log("[JOB] delete_user ->", job?.employee_no || job?.employee_id || "");
     const del = await deleteUser(job);
     if (!del.ok) {
       await completeJob(job, "error", del.error, { detail: del.detail }, 5);
@@ -1060,18 +1081,19 @@ async function onJsonEvent(payload) {
 
   // 1) guardar primero (offline-safe)
   const receivedAt = nowIso();
-  const filePath = await writeQueueFile(payload, receivedAt);
+  const tz = getBridgeTzOffsetMinutes();
+  const filePath = await writeQueueFile(payload, receivedAt, tz);
 
   // 2) intentar subir
-  const res = await insertToSupabaseFromRaw(payload, receivedAt);
+  const res = await insertToSupabaseFromRaw(payload, receivedAt, tz);
 
   if (res.ok) {
     await removeOrArchive(filePath);
   } else {
     console.error(
-      "❌ Ingest error (live):",
+      "ERR Ingest error (live):",
       res.error,
-      "→ quedó en cola:",
+      "-> quedo en cola:",
       path.basename(filePath)
     );
   }
@@ -1198,7 +1220,7 @@ function startStream() {
 
   p.on("close", (code) => {
     streamConnected = false;
-    console.error("❌ Stream cerró. code =", code, "→ reconectando en", RECONNECT_MS, "ms...");
+    console.error("ERR Stream cerro. code =", code, "-> reconectando en", RECONNECT_MS, "ms...");
     setTimeout(startStream, RECONNECT_MS);
   });
 }
@@ -1243,3 +1265,4 @@ function startStream() {
   console.error("Fatal:", e.message);
   process.exit(1);
 });
+

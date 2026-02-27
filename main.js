@@ -144,6 +144,160 @@ function safeName(s) {
     .slice(0, 120) || "device";
 }
 
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function resolveCurlPath() {
+  const p1 = "C:\\Windows\\System32\\curl.exe";
+  if (fs.existsSync(p1)) return p1;
+  return "curl.exe";
+}
+
+function xmlTag(xml, tag) {
+  const safe = String(tag || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(
+    `<(?:\\w+:)?${safe}[^>]*>([\\s\\S]*?)</(?:\\w+:)?${safe}>`,
+    "i"
+  );
+  const m = String(xml || "").match(re);
+  return m ? m[1].trim() : null;
+}
+
+function parseDeviceInfo(xml) {
+  if (!xml) return null;
+  const info = {
+    deviceName: xmlTag(xml, "deviceName"),
+    deviceID: xmlTag(xml, "deviceID"),
+    model: xmlTag(xml, "model"),
+    serialNumber: xmlTag(xml, "serialNumber"),
+    macAddress: xmlTag(xml, "macAddress"),
+    firmwareVersion: xmlTag(xml, "firmwareVersion"),
+    firmwareReleasedDate: xmlTag(xml, "firmwareReleasedDate"),
+    deviceType: xmlTag(xml, "deviceType"),
+    supportBeep: xmlTag(xml, "supportBeep"),
+  };
+  const hasAny = Object.values(info).some((v) => v != null && String(v).trim() !== "");
+  return hasAny ? info : null;
+}
+
+function parseTimeInfo(xml) {
+  if (!xml) return null;
+  const info = {
+    timeMode: xmlTag(xml, "timeMode"),
+    localTime: xmlTag(xml, "localTime"),
+    timeZone: xmlTag(xml, "timeZone"),
+  };
+  const hasAny = Object.values(info).some((v) => v != null && String(v).trim() !== "");
+  return hasAny ? info : null;
+}
+
+function mergeDeviceInfo(deviceInfo, deviceTime) {
+  if (!deviceInfo && !deviceTime) return null;
+  return { ...(deviceInfo || {}), ...(deviceTime || {}) };
+}
+
+async function fetchDeviceInfoBundle(device, opts) {
+  const [deviceInfo, deviceTime] = await Promise.all([
+    fetchDeviceInfo(device, opts),
+    fetchDeviceTime(device, opts)
+  ]);
+  return {
+    deviceInfo,
+    deviceTime,
+    merged: mergeDeviceInfo(deviceInfo, deviceTime)
+  };
+}
+
+async function fetchIsapiXml(device, endpoint, label, opts = {}) {
+  const ip = String(device?.HIK_IP || "").trim();
+  if (!ip) return null;
+  const user = String(device?.HIK_USER || "admin").trim() || "admin";
+  const pass = String(device?.HIK_PASS || "").trim();
+  const connectTimeout = Number(opts.connectTimeoutSec ?? 3);
+  const maxTime = Number(opts.maxTimeSec ?? 8);
+  const url = `http://${ip}${endpoint}`;
+  const args = [
+    "-sS",
+    "--digest",
+    "--write-out",
+    "\nCURL_HTTP_CODE:%{http_code}",
+    "--connect-timeout",
+    String(connectTimeout),
+    "--max-time",
+    String(maxTime),
+    "-u",
+    `${user}:${pass}`,
+    url
+  ];
+  return await new Promise((resolve) => {
+    const p = spawn(resolveCurlPath(), args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+    let buf = "";
+    let err = "";
+    p.stdout.on("data", (d) => (buf += d.toString("utf8")));
+    p.stderr.on("data", (d) => (err += d.toString("utf8")));
+    p.on("close", (code) => {
+      let out = String(buf || "").trim();
+      let httpCode = "";
+      const codeMatch = out.match(/CURL_HTTP_CODE:(\d+)/);
+      if (codeMatch) {
+        httpCode = codeMatch[1];
+        out = out.replace(/\s*CURL_HTTP_CODE:\d+\s*$/i, "").trim();
+      }
+      if (!out) {
+        const msg = `[WARN] ${label || "ISAPI"} vacio (${ip}) curl=${code}`;
+        console.log(msg);
+        if (err && err.trim()) console.log(`[WARN] ${label || "ISAPI"} stderr:`, err.trim());
+        if (httpCode && httpCode !== "200") {
+          const httpMsg = `[WARN] ${label || "ISAPI"} http=${httpCode} (${ip})`;
+          console.log(httpMsg);
+          if (win) win.webContents.send("bridge-log", httpMsg);
+        }
+      }
+      if (httpCode && httpCode !== "200" && out) {
+        const httpMsg = `[WARN] ${label || "ISAPI"} http=${httpCode} (${ip})`;
+        console.log(httpMsg);
+        if (win) win.webContents.send("bridge-log", httpMsg);
+      }
+      resolve(out || "");
+    });
+  });
+}
+
+async function fetchDeviceInfo(device, opts) {
+  const out = await fetchIsapiXml(device, "/ISAPI/System/deviceInfo", "deviceInfo", opts);
+  const parsed = parseDeviceInfo(out);
+  if (!parsed && out) {
+    const msg = `[WARN] deviceInfo parse vacío (${device?.HIK_IP || "ip?"})`;
+    console.log(msg);
+    if (win) win.webContents.send("bridge-log", msg);
+    const snippet = String(out).replace(/\s+/g, " ").slice(0, 200);
+    if (snippet) {
+      const sn = `[WARN] deviceInfo raw: ${snippet}`;
+      console.log(sn);
+      if (win) win.webContents.send("bridge-log", sn);
+    }
+  }
+  return parsed;
+}
+
+async function fetchDeviceTime(device, opts) {
+  const out = await fetchIsapiXml(device, "/ISAPI/System/time", "deviceTime", opts);
+  const parsed = parseTimeInfo(out);
+  if (!parsed && out) {
+    const msg = `[WARN] deviceTime parse vacío (${device?.HIK_IP || "ip?"})`;
+    console.log(msg);
+    if (win) win.webContents.send("bridge-log", msg);
+    const snippet = String(out).replace(/\s+/g, " ").slice(0, 200);
+    if (snippet) {
+      const sn = `[WARN] deviceTime raw: ${snippet}`;
+      console.log(sn);
+      if (win) win.webContents.send("bridge-log", sn);
+    }
+  }
+  return parsed;
+}
+
 function normalizeDevices(cfg) {
   let devices = Array.isArray(cfg?.DEVICES) ? cfg.DEVICES : [];
 
@@ -168,15 +322,7 @@ function normalizeDevices(cfg) {
   }
 
   if (!devices.length) {
-    devices = [{
-      LABEL: "",
-      DEVICE_UUID: "",
-      DEVICE_KEY: "",
-      ENROLL_TOKEN: "",
-      HIK_IP: "",
-      HIK_USER: "admin",
-      HIK_PASS: "",
-    }];
+    devices = [];
   }
 
   return devices.map((d) => ({
@@ -187,6 +333,12 @@ function normalizeDevices(cfg) {
     HIK_IP: String(d?.HIK_IP || d?.hik_ip || "").trim(),
     HIK_USER: String(d?.HIK_USER || d?.hik_user || "admin").trim() || "admin",
     HIK_PASS: String(d?.HIK_PASS || d?.hik_pass || "").trim(),
+    HIK_TIME_ZONE: String(d?.HIK_TIME_ZONE || d?.hik_time_zone || "").trim(),
+    HIK_TIME_MODE: String(d?.HIK_TIME_MODE || d?.hik_time_mode || "").trim(),
+    HIK_LOCAL_TIME: String(d?.HIK_LOCAL_TIME || d?.hik_local_time || "").trim(),
+    HIK_MODEL: String(d?.HIK_MODEL || d?.hik_model || "").trim(),
+    HIK_SERIAL: String(d?.HIK_SERIAL || d?.hik_serial || "").trim(),
+    HIK_MAC: String(d?.HIK_MAC || d?.hik_mac || "").trim(),
   }));
 }
 
@@ -215,7 +367,7 @@ function readConfig() {
     const merged = normalizeCfgForSave(cfg);
     return merged;
   } catch (e) {
-    dialog.showErrorBox(APP_NAME, `config.json roto o inválido:\n${CONFIG_PATH}\n\n${e.message}`);
+    dialog.showErrorBox(APP_NAME, `config.json roto o invalido:\n${CONFIG_PATH}\n\n${e.message}`);
     return normalizeCfgForSave({});
   }
 }
@@ -261,6 +413,10 @@ function runningCount() {
 
 function isBridgeRunning() {
   return runningCount() > 0;
+}
+
+function deviceIdFor(device, index) {
+  return device?.DEVICE_UUID || `idx-${index}`;
 }
 
 function deviceLabel(device, index) {
@@ -323,6 +479,7 @@ function stopAllProcs() {
       clearTimeout(entry.restartTimer);
       entry.restartTimer = null;
     }
+    if (entry) entry.stopRequested = true;
     try { entry?.proc?.kill(); } catch {}
   }
   bridgeProcs.clear();
@@ -330,15 +487,15 @@ function stopAllProcs() {
 
 function scheduleDeviceRestart(id) {
   const entry = bridgeProcs.get(id);
-  if (!entry || entry.restartTimer || app.isQuiting) return;
+  if (!entry || entry.restartTimer || entry.stopRequested || app.isQuiting) return;
   entry.restartTimer = setTimeout(() => {
     entry.restartTimer = null;
-    if (!bridgeStopRequested) startDevice(entry.device, entry.index, entry.cfg);
+    if (!bridgeStopRequested && !entry.stopRequested) startDevice(entry.device, entry.index, entry.cfg);
   }, 5000);
 }
 
 function startDevice(device, index, cfg) {
-  const deviceId = device?.DEVICE_UUID || `idx-${index}`;
+  const deviceId = deviceIdFor(device, index);
   if (!isDeviceReady(device)) return;
 
   if (bridgeProcs.has(deviceId)) {
@@ -361,7 +518,7 @@ function startDevice(device, index, cfg) {
       });
 
       const label = deviceLabel(device, index);
-      const entry = { proc, device, index, cfg, label, configPath: deviceConfigPath, restartTimer: null };
+      const entry = { proc, device, index, cfg, label, configPath: deviceConfigPath, restartTimer: null, stopRequested: false };
       bridgeProcs.set(deviceId, entry);
 
       proc.stdout.on("data", (d) => {
@@ -421,6 +578,7 @@ function startBridge() {
   }
 
   ready.forEach((d, i) => startDevice(d, i, cfg));
+  ready.forEach((d) => scheduleDeviceInfoRefresh(cfg, d));
 }
 
 function stopBridge() {
@@ -435,11 +593,58 @@ function restartBridge() {
   setTimeout(() => startBridge(), 400);
 }
 
+function startDeviceById(deviceId) {
+  const id = String(deviceId || "").trim();
+  if (!id) return { ok: false, error: "missing_device_id" };
+  const cfg = readConfig();
+  const devices = normalizeDevices(cfg);
+  const idx = devices.findIndex((d, i) => deviceIdFor(d, i) === id);
+  if (idx < 0) return { ok: false, error: "device_not_found" };
+  const device = devices[idx];
+  if (!isDeviceReady(device)) return { ok: false, error: "device_not_ready" };
+  bridgeStopRequested = false;
+  startDevice(device, idx, cfg);
+  return { ok: true };
+}
+
+function stopDeviceById(deviceId) {
+  const id = String(deviceId || "").trim();
+  if (!id) return { ok: false, error: "missing_device_id" };
+  const entry = bridgeProcs.get(id);
+  if (!entry) return { ok: false, error: "device_not_found" };
+  if (entry.restartTimer) {
+    clearTimeout(entry.restartTimer);
+    entry.restartTimer = null;
+  }
+  entry.stopRequested = true;
+  try { entry?.proc?.kill(); } catch {}
+  if (entry.proc) entry.proc = null;
+  updateTrayMenu();
+  if (win) win.webContents.send("bridge-state", bridgeState());
+  return { ok: true };
+}
+
+function restartDeviceById(deviceId) {
+  const res = stopDeviceById(deviceId);
+  if (!res.ok) return res;
+  setTimeout(() => startDeviceById(deviceId), 400);
+  return { ok: true };
+}
+
+function runningDeviceIds() {
+  const ids = [];
+  for (const [id, entry] of bridgeProcs.entries()) {
+    if (entry?.proc && !entry.proc.killed) ids.push(id);
+  }
+  return ids;
+}
+
 function bridgeState() {
   return {
     running: isBridgeRunning(),
     count: runningCount(),
-    total: lastDeviceCount || 0
+    total: lastDeviceCount || 0,
+    device_running_ids: runningDeviceIds()
   };
 }
 
@@ -472,6 +677,13 @@ async function edgePost(cfg, fn, payload) {
   return { ok: true, data };
 }
 
+async function deleteDeviceByKey(device, cfg) {
+  const device_id = String(device?.DEVICE_UUID || "").trim();
+  const device_key = String(device?.DEVICE_KEY || "").trim();
+  if (!device_id || !device_key) return { ok: false, error: "missing_device_auth" };
+  return await edgePost(cfg, "bridgeDeleteDeviceByKey", { device_id, device_key });
+}
+
 async function enrollDeviceFor(token, device, cfg) {
   if (!cfg?.SUPABASE_URL) return { ok: false, error: "missing_supabase_url" };
   if (!token) return { ok: false, error: "missing_token" };
@@ -479,10 +691,23 @@ async function enrollDeviceFor(token, device, cfg) {
   const miss = missingCoreFieldsForEnroll(device);
   if (miss.length) return { ok: false, error: `missing_${miss.join("_")}` };
 
+  const bundle = await fetchDeviceInfoBundle(device, { connectTimeoutSec: 3, maxTimeSec: 8 });
+  if (!bundle.deviceInfo) console.log("[WARN] No se pudo leer deviceInfo.");
+  if (!bundle.deviceTime) console.log("[WARN] No se pudo leer deviceTime.");
+  const mergedInfo = bundle.merged;
+  let resolvedLabel = String(device?.LABEL || "").trim();
+  const model = String(bundle.deviceInfo?.model || "").trim();
+  const serial = String(bundle.deviceInfo?.serialNumber || "").trim();
+  const modelSerial = [model, serial].filter(Boolean).join(" | ");
+  if (!resolvedLabel && modelSerial) resolvedLabel = modelSerial;
+  if (!resolvedLabel && serial) resolvedLabel = serial;
+  if (!resolvedLabel && device?.HIK_IP) resolvedLabel = String(device.HIK_IP || "").trim();
+
   const res = await edgePost(cfg, "bridgeEnrollDevice", {
     token,
     device_ip: device.HIK_IP,
-    device_name: device.LABEL || device.HIK_IP || "Dispositivo",
+    device_name: resolvedLabel || device.HIK_IP || "Dispositivo",
+    device_info: mergedInfo,
     bridge_id: cfg.BRIDGE_ID || os.hostname(),
   });
 
@@ -492,12 +717,180 @@ async function enrollDeviceFor(token, device, cfg) {
   const device_key = String(res.data?.device_key || "");
   if (!device_id || !device_key) return { ok: false, error: "invalid_enroll_response" };
 
-  return { ok: true, device_id, device_key };
+  return {
+    ok: true,
+    device_id,
+    device_key,
+    label: resolvedLabel || "",
+    time_zone: bundle.deviceTime?.timeZone || "",
+    time_mode: bundle.deviceTime?.timeMode || "",
+    local_time: bundle.deviceTime?.localTime || "",
+    hik_model: bundle.deviceInfo?.model || "",
+    hik_serial: bundle.deviceInfo?.serialNumber || "",
+    hik_mac: bundle.deviceInfo?.macAddress || "",
+  };
 }
 
-async function enrollDeviceByIndex(token, index, deviceOverride) {
+async function refreshDeviceInfoAfterEnroll(cfg, device, device_id, device_key, opts = {}) {
+  try {
+    let merged = null;
+    let info = null;
+    let time = null;
+
+    const attempts = Array.isArray(opts.attempts) && opts.attempts.length
+      ? opts.attempts
+      : [
+      { connectTimeoutSec: 4, maxTimeSec: 12 },
+      { connectTimeoutSec: 5, maxTimeSec: 18 },
+      { connectTimeoutSec: 6, maxTimeSec: 25 }
+    ];
+    for (let i = 0; i < attempts.length; i += 1) {
+      const bundle = await fetchDeviceInfoBundle(device, attempts[i]);
+      info = bundle.deviceInfo;
+      time = bundle.deviceTime;
+      merged = bundle.merged;
+      if (merged) break;
+      await sleep(800);
+    }
+
+    if (!merged) {
+      console.log("[WARN] No se pudo leer deviceInfo/time para actualizar DB.");
+      if (win) win.webContents.send("bridge-log", "[WARN] No se pudo leer deviceInfo/time para actualizar DB.");
+      return { ok: false, error: "no_device_info" };
+    }
+
+    const updated = {
+      HIK_TIME_ZONE: time?.timeZone || merged?.timeZone || "",
+      HIK_TIME_MODE: time?.timeMode || merged?.timeMode || "",
+      HIK_LOCAL_TIME: time?.localTime || merged?.localTime || "",
+      HIK_MODEL: info?.model || merged?.model || "",
+      HIK_SERIAL: info?.serialNumber || merged?.serialNumber || "",
+      HIK_MAC: info?.macAddress || merged?.macAddress || ""
+    };
+    const modelSerial = [updated.HIK_MODEL, updated.HIK_SERIAL].filter(Boolean).join(" | ");
+
+    try {
+      const cfgNow = readConfig();
+      const devices = normalizeDevices(cfgNow);
+      const idx = devices.findIndex((d) => String(d?.DEVICE_UUID || "").trim() === String(device_id || "").trim());
+      if (idx >= 0) {
+        const d = devices[idx];
+        const setIf = (key, value) => {
+          const v = String(value || "").trim();
+          if (v) d[key] = v;
+        };
+        setIf("HIK_TIME_ZONE", updated.HIK_TIME_ZONE);
+        setIf("HIK_TIME_MODE", updated.HIK_TIME_MODE);
+        setIf("HIK_LOCAL_TIME", updated.HIK_LOCAL_TIME);
+        setIf("HIK_MODEL", updated.HIK_MODEL);
+        setIf("HIK_SERIAL", updated.HIK_SERIAL);
+        setIf("HIK_MAC", updated.HIK_MAC);
+        if (modelSerial) {
+          const curLabel = String(d.LABEL || "").trim();
+          const bridgeId = String(cfgNow?.BRIDGE_ID || "").trim();
+          if (!curLabel || curLabel === bridgeId) {
+            d.LABEL = modelSerial;
+            updated.LABEL = modelSerial;
+          }
+        }
+        await writeConfig({ ...cfgNow, DEVICES: devices });
+        if (win) win.webContents.send("config-updated");
+      }
+    } catch (e) {
+      console.log("[WARN] update local config failed:", e?.message || String(e));
+    }
+
+    if (opts.updateDb !== false) {
+      if (win) win.webContents.send("bridge-log", `[INFO] Enviando deviceInfo a DB (${device_id})`);
+      const res = await edgePost(cfg, "bridgeUpdateDeviceInfo", {
+        device_id,
+        device_key,
+        device_info: merged
+      });
+      if (!res?.ok) {
+        console.log("[WARN] bridgeUpdateDeviceInfo failed:", res?.error || "unknown_error");
+        if (win) win.webContents.send("bridge-log", `[WARN] bridgeUpdateDeviceInfo failed: ${res?.error || "unknown_error"}`);
+        return { ok: false, error: res?.error || "update_db_failed", updated };
+      }
+      console.log("[OK] deviceInfo actualizado en DB.");
+      if (win) win.webContents.send("bridge-log", "[OK] deviceInfo actualizado en DB.");
+    }
+
+    return { ok: true, updated };
+  } catch (e) {
+    console.log("[WARN] refreshDeviceInfoAfterEnroll error:", e?.message || String(e));
+    return { ok: false, error: e?.message || String(e) };
+  }
+}
+
+function shouldRefreshDeviceInfo(device) {
+  const fields = [
+    device?.HIK_TIME_ZONE,
+    device?.HIK_TIME_MODE,
+    device?.HIK_LOCAL_TIME,
+    device?.HIK_MODEL,
+    device?.HIK_SERIAL,
+    device?.HIK_MAC
+  ];
+  return fields.some((v) => !String(v || "").trim());
+}
+
+function scheduleDeviceInfoRefresh(cfg, device) {
+  if (!device?.DEVICE_UUID || !device?.DEVICE_KEY) return;
+  if (!shouldRefreshDeviceInfo(device)) return;
+  let tries = 0;
+  const attempts = [
+    { connectTimeoutSec: 5, maxTimeSec: 18 },
+    { connectTimeoutSec: 6, maxTimeSec: 25 },
+    { connectTimeoutSec: 8, maxTimeSec: 35 }
+  ];
+  const run = async () => {
+    tries += 1;
+    const res = await refreshDeviceInfoAfterEnroll(
+      cfg,
+      device,
+      device.DEVICE_UUID,
+      device.DEVICE_KEY,
+      { attempts, updateDb: true }
+    );
+    const updated = res?.updated || {};
+    const hasAny = [
+      updated.HIK_TIME_ZONE,
+      updated.HIK_TIME_MODE,
+      updated.HIK_LOCAL_TIME,
+      updated.HIK_MODEL,
+      updated.HIK_SERIAL,
+      updated.HIK_MAC
+    ].some((v) => String(v || "").trim());
+    if (res?.ok && hasAny) return;
+    if (tries < 5) setTimeout(run, 8000).unref?.();
+  };
+  setTimeout(run, 2500).unref?.();
+}
+
+async function refreshDeviceInfoForDevice(deviceId) {
+  const id = String(deviceId || "").trim();
+  if (!id) return { ok: false, error: "missing_device_id" };
   const cfg = readConfig();
   const devices = normalizeDevices(cfg);
+  const idx = devices.findIndex((d, i) => deviceIdFor(d, i) === id);
+  if (idx < 0) return { ok: false, error: "device_not_found" };
+  const device = devices[idx];
+  if (!device?.HIK_IP) return { ok: false, error: "missing_device_ip" };
+  if (!device?.DEVICE_KEY) return { ok: false, error: "missing_device_key" };
+  const attempts = [
+    { connectTimeoutSec: 5, maxTimeSec: 15 },
+    { connectTimeoutSec: 6, maxTimeSec: 22 },
+    { connectTimeoutSec: 8, maxTimeSec: 30 }
+  ];
+  return await refreshDeviceInfoAfterEnroll(cfg, device, id, device.DEVICE_KEY, { attempts, updateDb: true });
+}
+
+async function enrollDeviceByIndex(token, index, deviceOverride, devicesOverride) {
+  const cfg = readConfig();
+  const devices = Array.isArray(devicesOverride)
+    ? normalizeDevices({ DEVICES: devicesOverride })
+    : normalizeDevices(cfg);
   const idx = Number.isFinite(index) ? index : 0;
 
   while (devices.length <= idx) {
@@ -521,6 +914,13 @@ async function enrollDeviceByIndex(token, index, deviceOverride) {
   next.DEVICE_UUID = res.device_id;
   next.DEVICE_KEY = res.device_key;
   next.ENROLL_TOKEN = "";
+  if (!next.LABEL && res.label) next.LABEL = res.label;
+  if (res.time_zone) next.HIK_TIME_ZONE = res.time_zone;
+  if (res.time_mode) next.HIK_TIME_MODE = res.time_mode;
+  if (res.local_time) next.HIK_LOCAL_TIME = res.local_time;
+  if (res.hik_model) next.HIK_MODEL = res.hik_model;
+  if (res.hik_serial) next.HIK_SERIAL = res.hik_serial;
+  if (res.hik_mac) next.HIK_MAC = res.hik_mac;
 
   devices[idx] = next;
 
@@ -529,7 +929,9 @@ async function enrollDeviceByIndex(token, index, deviceOverride) {
   if (isBridgeRunning()) restartBridge();
   else startBridge();
 
-  return { ok: true, device_id: res.device_id, saved };
+  refreshDeviceInfoAfterEnroll(cfg, next, res.device_id, res.device_key).catch(() => {});
+
+  return { ok: true, device_id: res.device_id, device: next, saved };
 }
 
 // =============================
@@ -574,7 +976,7 @@ function updateTrayMenu() {
   const total = lastDeviceCount || 0;
   const running = count > 0;
   const statusLabel = total > 0
-    ? `${APP_NAME} (${running ? "RUNNING" : "STOPPED"}) · ${count}/${total}`
+    ? `${APP_NAME} (${running ? "RUNNING" : "STOPPED"}) - ${count}/${total}`
     : `${APP_NAME} (${running ? "RUNNING" : "STOPPED"})`;
 
   const menu = Menu.buildFromTemplate([
@@ -648,7 +1050,7 @@ function setupAutoUpdater() {
       .showMessageBox({
         type: "info",
         title: APP_NAME,
-        message: "Actualización descargada. ¿Quieres instalarla ahora?",
+        message: "Actualizacion descargada. Quieres instalarla ahora?",
         buttons: ["Instalar ahora", "Luego"],
         defaultId: 0
       })
@@ -684,8 +1086,8 @@ function triggerUpdateCheck(userInitiated = false) {
 function scheduleUpdateChecks() {
   if (!app.isPackaged) return;
 
-  // cada 6 horas
-  const MS = 6 * 60 * 60 * 1000;
+  // cada 10 segundos
+  const MS = 10 * 1000;
   if (updateTimer) clearInterval(updateTimer);
   updateTimer = setInterval(() => triggerUpdateCheck(false), MS);
   updateTimer.unref();
@@ -711,6 +1113,10 @@ ipcMain.handle("bridge:start", () => startBridge());
 ipcMain.handle("bridge:stop", () => stopBridge());
 ipcMain.handle("bridge:restart", () => restartBridge());
 ipcMain.handle("bridge:running", () => bridgeState());
+ipcMain.handle("device:start", (_e, deviceId) => startDeviceById(deviceId));
+ipcMain.handle("device:stop", (_e, deviceId) => stopDeviceById(deviceId));
+ipcMain.handle("device:restart", (_e, deviceId) => restartDeviceById(deviceId));
+ipcMain.handle("device:refresh-info", (_e, deviceId) => refreshDeviceInfoForDevice(deviceId));
 
 ipcMain.handle("bridge:enroll", async (_evt, token) => {
   try {
@@ -726,8 +1132,22 @@ ipcMain.handle("bridge:enroll-device", async (_evt, payload) => {
     const idx = Number(payload?.index ?? 0);
     const token = String(payload?.token || "").trim();
     const device = payload?.device || null;
+    const devices = Array.isArray(payload?.devices) ? payload.devices : null;
     if (!token) return { ok: false, error: "missing_token" };
-    return await enrollDeviceByIndex(token, idx, device);
+    return await enrollDeviceByIndex(token, idx, device, devices);
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+ipcMain.handle("bridge:delete-device", async (_evt, payload) => {
+  try {
+    const cfg = readConfig();
+    const device = payload?.device || null;
+    if (!device) return { ok: false, error: "missing_device" };
+    const res = await deleteDeviceByKey(device, cfg);
+    if (!res?.ok) return { ok: false, error: res?.error || "delete_failed" };
+    return { ok: true, data: res.data || null };
   } catch (e) {
     return { ok: false, error: e?.message || String(e) };
   }
@@ -773,3 +1193,4 @@ app.on("before-quit", () => {
   app.isQuiting = true;
   stopBridge();
 });
+
