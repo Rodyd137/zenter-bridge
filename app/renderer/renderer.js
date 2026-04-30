@@ -1,4 +1,125 @@
-﻿const deviceDefaults = {
+// ── Toast ──────────────────────────────────────────────────────────────────────
+function toast(msg, type = "info", duration = 3800) {
+  const container = document.getElementById("toasts");
+  if (!container) { console.warn("[toast]", msg); return; }
+  const t = document.createElement("div");
+  t.className = `toast ${type}`;
+  t.textContent = msg;
+  container.appendChild(t);
+  const remove = () => {
+    t.classList.add("out");
+    setTimeout(() => t.remove(), 230);
+  };
+  const timer = setTimeout(remove, duration);
+  t.onclick = () => { clearTimeout(timer); remove(); };
+}
+
+// ── Confirm modal ──────────────────────────────────────────────────────────────
+function confirmModal(msg, opts = {}) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    const title = opts.title ? `<div class="modal-title">${String(opts.title).replaceAll("<","&lt;")}</div>` : "";
+    overlay.innerHTML = `
+      <div class="modal" role="dialog" aria-modal="true">
+        ${title}
+        <p class="modal-msg">${String(msg).replaceAll("<","&lt;").replaceAll("\n","<br>")}</p>
+        <div class="modal-actions">
+          <button class="btn ghost" id="mCancel">Cancelar</button>
+          <button class="btn ${opts.danger ? "danger" : "primary"}" id="mConfirm">${opts.confirmLabel || "Confirmar"}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const finish = (v) => { overlay.remove(); resolve(v); };
+    overlay.querySelector("#mConfirm").onclick = () => finish(true);
+    overlay.querySelector("#mCancel").onclick  = () => finish(false);
+    overlay.onclick = (e) => { if (e.target === overlay) finish(false); };
+    overlay.querySelector("#mConfirm").focus();
+  });
+}
+
+// ── Log colorizer ──────────────────────────────────────────────────────────────
+function logClass(msg) {
+  const m = (msg || "").toUpperCase();
+  if (/\b(ERR|ERROR|FAILED|FAIL|FALLO|EXCEPTION)\b/.test(m)) return "log-err";
+  if (/\b(WARN|WARNING|ADVERTENCIA)\b/.test(m)) return "log-warn";
+  if (/(^|\b)(OK\b|SUCCESS|ACTIVO|SYNCED|REGISTRADO|GUARDADO|INSERTED|FLUSHED|CONECTADO|DEMO COMPLETO)/.test(m)) return "log-ok";
+  if (/\b(BOUNDARY|HEARTBEAT|EVENT|INICIANDO|STARTING|STREAM|BOUNDARY DETECTADO)\b/.test(m)) return "log-accent";
+  return "";
+}
+
+function appendLog(msg) {
+  if (!msg) return;
+  const box = el("logs");
+  if (!box) return;
+  const line = document.createElement("div");
+  line.className = "log-line " + logClass(msg);
+  line.textContent = msg;
+  box.appendChild(line);
+  while (box.children.length > 600) box.removeChild(box.firstChild);
+  box.scrollTop = box.scrollHeight;
+}
+
+// ── Device stats (populated by IPC poll) ──────────────────────────────────────
+let allDeviceStats = {};
+
+function fmtRelTime(isoStr) {
+  if (!isoStr) return null;
+  const diff = Math.floor((Date.now() - new Date(isoStr).getTime()) / 1000);
+  if (diff < 5)   return "justo ahora";
+  if (diff < 60)  return `hace ${diff}s`;
+  if (diff < 3600) return `hace ${Math.floor(diff / 60)}m`;
+  if (diff < 86400) return `hace ${Math.floor(diff / 3600)}h`;
+  return `hace ${Math.floor(diff / 86400)}d`;
+}
+
+function statsChips(deviceId) {
+  const s = allDeviceStats[deviceId];
+  if (!s) return "";
+
+  const connected = s.stream_connected;
+  const connChip = connected
+    ? `<span class="stat-chip ok">Stream activo</span>`
+    : `<span class="stat-chip err">Stream desconectado</span>`;
+
+  const lastEvt = fmtRelTime(s.last_event_at);
+  const evtChip = lastEvt
+    ? `<span class="stat-chip">Último evento <b>${lastEvt}</b></span>`
+    : `<span class="stat-chip warn">Sin eventos aún</span>`;
+
+  const q = Number(s.queue_depth || 0);
+  const qChip = q > 0
+    ? `<span class="stat-chip warn">Cola offline <b>${q}</b></span>`
+    : `<span class="stat-chip ok">Cola vacía</span>`;
+
+  const sess = Number(s.events_session || 0);
+  const sessChip = `<span class="stat-chip">Sesión <b>${sess}</b> evento${sess !== 1 ? "s" : ""}</span>`;
+
+  return `<div class="device-stats">${connChip}${evtChip}${qChip}${sessChip}</div>`;
+}
+
+async function refreshStats() {
+  try {
+    allDeviceStats = (await window.ZBridge.bridgeStats()) || {};
+    // Patch only the stats rows without rebuilding cards
+    document.querySelectorAll(".device-card").forEach((card, i) => {
+      const d = stateDevices[i];
+      if (!d?.DEVICE_UUID) return;
+      let statsRow = card.querySelector(".device-stats");
+      const html = statsChips(d.DEVICE_UUID);
+      if (!html) { if (statsRow) statsRow.remove(); return; }
+      if (statsRow) {
+        statsRow.outerHTML = html;
+      } else {
+        const footer = card.querySelector(".device-footer");
+        if (footer) footer.insertAdjacentHTML("afterend", html);
+      }
+    });
+  } catch {}
+}
+
+// ── Shared ─────────────────────────────────────────────────────────────────────
+const deviceDefaults = {
   LABEL: "",
   DEVICE_UUID: "",
   DEVICE_KEY: "",
@@ -24,37 +145,26 @@ function esc(v) {
     .replaceAll('"', "&quot;");
 }
 
-function appendLog(msg) {
-  if (!msg) return;
-  const box = el("logs");
-  box.textContent = (box.textContent + "\n" + msg).trim();
-  box.scrollTop = box.scrollHeight;
-}
-
 function setUpdateUI(state) {
   const s = String(state || "idle");
   const pill = el("updatePill");
   const label = el("updateState");
   const map = {
-    idle: "Actualizado",
+    idle: null,
     checking: "Buscando actualizaciones",
-    available: "Actualizacion disponible",
-    downloading: "Descargando actualizacion",
-    downloaded: "Actualizacion lista",
-    error: "Error de actualizacion"
+    available: "Actualización disponible",
+    downloading: "Descargando actualización",
+    downloaded: "Actualización lista — reinicia para instalar",
+    error: "Error de actualización"
   };
-  if (pill) pill.style.display = "inline-flex";
-  if (label) label.textContent = map[s] || s.toUpperCase();
+  const text = map[s] !== undefined ? map[s] : s.toUpperCase();
+  if (pill) pill.style.display = text ? "inline-flex" : "none";
+  if (label) label.textContent = text || "";
 
-  const btnCheck = el("btnUpdateCheck");
+  const btnCheck   = el("btnUpdateCheck");
   const btnInstall = el("btnUpdateInstall");
-
-  if (btnCheck) {
-    btnCheck.disabled = (s === "checking" || s === "downloading");
-  }
-  if (btnInstall) {
-    btnInstall.disabled = (s !== "downloaded");
-  }
+  if (btnCheck)   btnCheck.disabled   = (s === "checking" || s === "downloading");
+  if (btnInstall) btnInstall.disabled = (s !== "downloaded");
 }
 
 function normalizeDevices(cfg) {
@@ -79,19 +189,19 @@ function normalizeDevices(cfg) {
 
   return devices.map((d) => ({
     ...deviceDefaults,
-    LABEL: String(d?.LABEL || d?.label || "").trim(),
+    LABEL:       String(d?.LABEL       || d?.label       || "").trim(),
     DEVICE_UUID: String(d?.DEVICE_UUID || d?.device_uuid || d?.device_id || "").trim(),
-    DEVICE_KEY: String(d?.DEVICE_KEY || d?.device_key || "").trim(),
-    ENROLL_TOKEN: String(d?.ENROLL_TOKEN || d?.enroll_token || "").trim(),
-    HIK_IP: String(d?.HIK_IP || d?.hik_ip || "").trim(),
-    HIK_USER: String(d?.HIK_USER || d?.hik_user || "admin").trim() || "admin",
-    HIK_PASS: String(d?.HIK_PASS || d?.hik_pass || "").trim(),
-    HIK_TIME_ZONE: String(d?.HIK_TIME_ZONE || d?.hik_time_zone || "").trim(),
-    HIK_TIME_MODE: String(d?.HIK_TIME_MODE || d?.hik_time_mode || "").trim(),
+    DEVICE_KEY:  String(d?.DEVICE_KEY  || d?.device_key  || "").trim(),
+    ENROLL_TOKEN:String(d?.ENROLL_TOKEN|| d?.enroll_token|| "").trim(),
+    HIK_IP:      String(d?.HIK_IP      || d?.hik_ip      || "").trim(),
+    HIK_USER:    String(d?.HIK_USER    || d?.hik_user    || "admin").trim() || "admin",
+    HIK_PASS:    String(d?.HIK_PASS    || d?.hik_pass    || "").trim(),
+    HIK_TIME_ZONE:  String(d?.HIK_TIME_ZONE  || d?.hik_time_zone  || "").trim(),
+    HIK_TIME_MODE:  String(d?.HIK_TIME_MODE  || d?.hik_time_mode  || "").trim(),
     HIK_LOCAL_TIME: String(d?.HIK_LOCAL_TIME || d?.hik_local_time || "").trim(),
-    HIK_MODEL: String(d?.HIK_MODEL || d?.hik_model || "").trim(),
-    HIK_SERIAL: String(d?.HIK_SERIAL || d?.hik_serial || "").trim(),
-    HIK_MAC: String(d?.HIK_MAC || d?.hik_mac || "").trim(),
+    HIK_MODEL:   String(d?.HIK_MODEL   || d?.hik_model   || "").trim(),
+    HIK_SERIAL:  String(d?.HIK_SERIAL  || d?.hik_serial  || "").trim(),
+    HIK_MAC:     String(d?.HIK_MAC     || d?.hik_mac     || "").trim(),
   }));
 }
 
@@ -106,32 +216,40 @@ function deviceKey(d, i) {
 }
 
 function deviceCard(d, i) {
-  const idMeta = d.DEVICE_UUID ? d.DEVICE_UUID : "sin registrar";
   const hasDevice = !!(
     String(d.DEVICE_UUID || "").trim() &&
-    String(d.DEVICE_KEY || "").trim()
+    String(d.DEVICE_KEY  || "").trim()
   );
-  const key = deviceKey(d, i);
+  const key       = deviceKey(d, i);
   const isEditing = editingKeys.has(key);
   const showAdvanced = !hasDevice || isEditing;
-  const showEnroll = !hasDevice;
-  const isLocked = hasDevice && !isEditing;
+  const showEnroll   = !hasDevice;
+  const isLocked     = hasDevice && !isEditing;
   const disabledAttr = isLocked ? "disabled" : "";
-  const model = String(d.HIK_MODEL || "").trim();
-  const serial = String(d.HIK_SERIAL || "").trim();
-  const modelSerial = (model || serial) ? `${model || "-"} | ${serial || "-"}` : "";
-  const title = modelSerial || (d.LABEL ? d.LABEL : "Dispositivo");
-  const isDeviceRunning = runningIds.has(deviceKey(d, i));
-  const toggleLabel = isDeviceRunning ? "Detener" : "Iniciar";
-  const toggleAction = isDeviceRunning ? "stop" : "start";
-  const toggleClass = isDeviceRunning ? "btn danger" : "btn";
-  const editBtn = hasDevice
+
+  const model    = String(d.HIK_MODEL  || "").trim();
+  const serial   = String(d.HIK_SERIAL || "").trim();
+  const modelSerial = (model || serial) ? `${model || "—"} · ${serial || "—"}` : "";
+  const title    = modelSerial || (d.LABEL ? d.LABEL : "Dispositivo");
+  const tz       = d.HIK_TIME_ZONE || "";
+
+  const isRunning = runningIds.has(deviceKey(d, i));
+  const dotClass  = isRunning ? "good" : (hasDevice ? "bad" : "idle");
+
+  const toggleLabel  = isRunning ? "Detener" : "Iniciar";
+  const toggleAction = isRunning ? "stop" : "start";
+  const toggleClass  = isRunning ? "btn danger" : "btn";
+
+  const saveBtn   = hasDevice && isEditing
+    ? `<button class="btn primary" data-action="save" data-index="${i}">Guardar</button>`
+    : "";
+  const editBtn   = hasDevice
     ? `<button class="btn ghost" data-action="edit" data-index="${i}">${isEditing ? "Cerrar" : "Editar"}</button>`
     : `<button class="btn ghost" data-action="enroll" data-index="${i}">Registrar</button>`;
   const toggleBtn = hasDevice && !isEditing
     ? `<button class="${toggleClass}" data-action="${toggleAction}" data-index="${i}">${toggleLabel}</button>`
     : "";
-  const restartBtn = hasDevice && !isEditing && isDeviceRunning
+  const restartBtn = hasDevice && !isEditing && isRunning
     ? `<button class="btn" data-action="restart" data-index="${i}">Reiniciar</button>`
     : "";
   const removeBtn = (hasDevice && isEditing) || !hasDevice
@@ -141,16 +259,27 @@ function deviceCard(d, i) {
   const hidden = (field, value) =>
     `<input type="hidden" data-field="${field}" data-index="${i}" value="${esc(value)}" />`;
 
+  const statusText = isRunning
+    ? `<span style="font-size:11px;color:var(--good);font-weight:600">Activo</span>`
+    : hasDevice
+      ? `<span style="font-size:11px;color:var(--muted)">Detenido</span>`
+      : `<span style="font-size:11px;color:var(--muted)">Sin registrar</span>`;
+
   return `
     <div class="device-card" data-index="${i}">
       <div class="device-head">
         <div class="device-title">
-          <div class="small"><strong>${esc(title)}</strong></div>
+          <span class="device-status-dot ${dotClass}"></span>
+          <div>
+            <div><strong>${esc(title)}</strong></div>
+            ${statusText}
+          </div>
         </div>
         <div class="actions">
           ${removeBtn}
           ${restartBtn}
           ${toggleBtn}
+          ${saveBtn}
           ${editBtn}
         </div>
       </div>
@@ -158,7 +287,7 @@ function deviceCard(d, i) {
       <div class="device-grid">
         ${hasDevice ? `
         <div>
-          <label>Nombre de dispositivo</label>
+          <label>Nombre</label>
           <input class="field" data-field="LABEL" data-index="${i}" ${disabledAttr} placeholder="Nombre del dispositivo" value="${esc(d.LABEL)}" />
         </div>
         ` : ``}
@@ -173,7 +302,7 @@ function deviceCard(d, i) {
         </div>
         <div>
           <label>Contraseña</label>
-          <input class="field" data-field="HIK_PASS" data-index="${i}" ${disabledAttr} type="password" placeholder="password" value="${esc(d.HIK_PASS)}" />
+          <input class="field" data-field="HIK_PASS" data-index="${i}" ${disabledAttr} type="password" placeholder="••••••••" value="${esc(d.HIK_PASS)}" />
         </div>
         ${hasDevice ? `
         <div>
@@ -192,22 +321,31 @@ function deviceCard(d, i) {
         </div>
         ` : ``}
         ` : `
-        ${hidden("HIK_USER", d.HIK_USER)}
-        ${hidden("HIK_PASS", d.HIK_PASS)}
-        ${hidden("DEVICE_UUID", d.DEVICE_UUID)}
-        ${hidden("DEVICE_KEY", d.DEVICE_KEY)}
+        ${hidden("HIK_USER",     d.HIK_USER)}
+        ${hidden("HIK_PASS",     d.HIK_PASS)}
+        ${hidden("DEVICE_UUID",  d.DEVICE_UUID)}
+        ${hidden("DEVICE_KEY",   d.DEVICE_KEY)}
         ${hidden("ENROLL_TOKEN", d.ENROLL_TOKEN)}
         `}
-        ${hidden("HIK_TIME_ZONE", d.HIK_TIME_ZONE)}
-        ${hidden("HIK_TIME_MODE", d.HIK_TIME_MODE)}
+        ${hidden("HIK_TIME_ZONE",  d.HIK_TIME_ZONE)}
+        ${hidden("HIK_TIME_MODE",  d.HIK_TIME_MODE)}
         ${hidden("HIK_LOCAL_TIME", d.HIK_LOCAL_TIME)}
-        ${hidden("HIK_MODEL", d.HIK_MODEL)}
+        ${hidden("HIK_MODEL",  d.HIK_MODEL)}
         ${hidden("HIK_SERIAL", d.HIK_SERIAL)}
-        ${hidden("HIK_MAC", d.HIK_MAC)}
+        ${hidden("HIK_MAC",    d.HIK_MAC)}
       </div>
+
+      ${hasDevice ? `
       <div class="device-footer">
-        <div class="hint">Zona horaria: ${esc(d.HIK_TIME_ZONE || "sin detectar")} - Modelo: ${esc(d.HIK_MODEL || "-")} - S/N: ${esc(d.HIK_SERIAL || "-")} - MAC: ${esc(d.HIK_MAC || "-")}</div>
+        <span class="hint">
+          ${tz ? `Zona: ${esc(tz)}` : "Zona: sin detectar"}
+          ${model  ? ` · ${esc(model)}`  : ""}
+          ${serial ? ` · S/N ${esc(serial)}` : ""}
+          ${d.HIK_MAC ? ` · ${esc(d.HIK_MAC)}` : ""}
+        </span>
       </div>
+      ${statsChips(d.DEVICE_UUID)}
+      ` : ""}
     </div>
   `;
 }
@@ -216,10 +354,7 @@ function nextDefaultLabel(devices) {
   let max = 0;
   devices.forEach((d) => {
     const m = /^Dispositivo\s+(\d+)/i.exec(String(d?.LABEL || "").trim());
-    if (m) {
-      const n = Number(m[1]);
-      if (Number.isFinite(n) && n > max) max = n;
-    }
+    if (m) { const n = Number(m[1]); if (Number.isFinite(n) && n > max) max = n; }
   });
   return `Dispositivo ${max + 1}`;
 }
@@ -241,7 +376,7 @@ function ensureDefaultLabels(devices, bridgeId) {
   let assignedBridge = false;
   const anyLabel = devices.some((d) => String(d?.LABEL || "").trim());
 
-  return devices.map((d, idx) => {
+  return devices.map((d) => {
     if (String(d?.LABEL || "").trim()) return d;
     if (!assignedBridge && !anyLabel && bridgeId) {
       assignedBridge = true;
@@ -251,9 +386,41 @@ function ensureDefaultLabels(devices, bridgeId) {
   });
 }
 
+function patchRunningState() {
+  if (!editingKeys.size) {
+    renderDevices();
+    return;
+  }
+  // Cards in edit mode keep their DOM; only rebuild the rest
+  const cards = Array.from(document.querySelectorAll(".device-card"));
+  cards.forEach((card, i) => {
+    const d = stateDevices[i];
+    if (!d) return;
+    if (editingKeys.has(deviceKey(d, i))) return;
+    const tmp = document.createElement("div");
+    tmp.innerHTML = deviceCard(d, i).trim();
+    card.replaceWith(tmp.firstElementChild);
+  });
+}
+
 function renderDevices() {
   const list = el("devicesList");
   if (!list) return;
+
+  if (!stateDevices.length) {
+    list.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
+          </svg>
+        </div>
+        <div class="empty-title">Sin dispositivos configurados</div>
+        <div class="empty-sub">Usa "+ Agregar dispositivo" para registrar tu primer equipo Hikvision.</div>
+      </div>`;
+    return;
+  }
+
   const ordered = [...stateDevices].sort((a, b) => {
     const aEmpty = !String(a?.DEVICE_UUID || "").trim();
     const bEmpty = !String(b?.DEVICE_UUID || "").trim();
@@ -261,17 +428,13 @@ function renderDevices() {
     return aEmpty ? -1 : 1;
   });
   list.innerHTML = ordered.map(deviceCard).join("");
-  const count = el("devicesCount");
-  if (count) count.textContent = String(stateDevices.length || 0);
 }
 
 function collectDevices() {
-  const cards = Array.from(document.querySelectorAll(".device-card"));
-  return cards.map((card) => {
+  return Array.from(document.querySelectorAll(".device-card")).map((card) => {
     const obj = { ...deviceDefaults };
     card.querySelectorAll("[data-field]").forEach((input) => {
-      const key = input.getAttribute("data-field");
-      obj[key] = String(input.value || "").trim();
+      obj[input.getAttribute("data-field")] = String(input.value || "").trim();
     });
     if (!obj.HIK_USER) obj.HIK_USER = "admin";
     return obj;
@@ -284,18 +447,17 @@ function setStateLabel(st) {
   if (!st) {
     isBridgeRunning = false;
     runningIds = new Set();
-    elState.textContent = "DETENIDO";
+    elState.textContent = "Detenido";
     return;
   }
-  const running = !!st.running;
-  isBridgeRunning = running;
+  isBridgeRunning = !!st.running;
   runningIds = new Set(st.device_running_ids || []);
   const count = Number(st.count || 0);
   const total = Number(st.total || 0);
-  if (running) {
+  if (isBridgeRunning) {
     elState.textContent = total ? `Activo (${count}/${total})` : "Activo";
   } else {
-    elState.textContent = total ? `DETENIDO (0/${total})` : "DETENIDO";
+    elState.textContent = total ? `Detenido (0/${total})` : "Detenido";
   }
 }
 
@@ -308,6 +470,12 @@ async function load() {
   renderDevices();
 
   setUpdateUI("idle");
+
+  try {
+    const v = await window.ZBridge.appVersion();
+    const badge = el("versionBadge");
+    if (badge && v) badge.textContent = `v${v}`;
+  } catch {}
 }
 
 async function reloadDevicesFromConfig() {
@@ -319,7 +487,7 @@ async function reloadDevicesFromConfig() {
 async function refreshRunningState() {
   const st = await window.ZBridge.bridgeRunning();
   setStateLabel(st);
-  renderDevices();
+  patchRunningState();
 }
 
 async function persistDevices(devices, opts = {}) {
@@ -327,36 +495,27 @@ async function persistDevices(devices, opts = {}) {
   cfg.DEVICES = devices;
 
   const first = devices[0] || {};
-  cfg.DEVICE_UUID = first.DEVICE_UUID || "";
-  cfg.DEVICE_KEY = first.DEVICE_KEY || "";
+  cfg.DEVICE_UUID  = first.DEVICE_UUID  || "";
+  cfg.DEVICE_KEY   = first.DEVICE_KEY   || "";
   cfg.ENROLL_TOKEN = first.ENROLL_TOKEN || "";
-  cfg.HIK_IP = first.HIK_IP || "";
+  cfg.HIK_IP   = first.HIK_IP   || "";
   cfg.HIK_USER = first.HIK_USER || "admin";
   cfg.HIK_PASS = first.HIK_PASS || "";
 
   const res = await window.ZBridge.cfgSet(cfg);
 
   if (!res || !res.ok) {
-    if (!opts.silent) {
-      alert("No se pudo guardar.\n\n" + (res?.error || "unknown_error"));
-    }
+    if (!opts.silent) toast("No se pudo guardar: " + (res?.error || "error desconocido"), "err");
     appendLog("ERR: cfg:set failed -> " + (res?.error || "unknown_error"));
     return { ok: false, error: res?.error || "unknown_error" };
   }
 
   if (!opts.silent) {
-    alert("Guardado.");
+    toast("Configuración guardada", "ok");
     appendLog("Config guardada.");
   }
 
   return { ok: true, saved: res.saved };
-}
-
-async function save() {
-  const devices = collectDevices();
-  const res = await persistDevices(devices, { silent: false });
-  if (!res || !res.ok) return;
-  await load();
 }
 
 async function enroll(index) {
@@ -364,29 +523,31 @@ async function enroll(index) {
     const devices = collectDevices();
     const dev = devices[index];
     const token = String(dev?.ENROLL_TOKEN || "").trim();
-    if (!token) return alert("Falta el token de activación.");
+    if (!token) {
+      toast("Falta el token de activación.", "warn");
+      return;
+    }
 
     appendLog(`Registrando dispositivo #${index + 1}...`);
-    const res = await window.ZBridge.bridgeEnrollDevice({
-      index,
-      token,
-      device: dev,
-      devices
-    });
+    const res = await window.ZBridge.bridgeEnrollDevice({ index, token, device: dev, devices });
+
     if (!res || !res.ok) {
-      alert("No se pudo registrar.\n\n" + (res?.error || "unknown_error"));
+      toast("No se pudo registrar: " + (res?.error || "error desconocido"), "err");
       appendLog("ERR: enroll failed -> " + (res?.error || "unknown_error"));
       return;
     }
+
+    toast("Dispositivo registrado correctamente", "ok");
     appendLog("Dispositivo registrado: " + res.device_id);
+
     if (res.device) {
       devices[index] = { ...devices[index], ...res.device };
       stateDevices = ensureDefaultLabels(devices);
       renderDevices();
     }
-    setTimeout(() => {
-      load().catch(() => {});
-    }, 1500);
+
+    setTimeout(() => { load().catch(() => {}); }, 1500);
+
     setTimeout(async () => {
       try {
         const info = await window.ZBridge.deviceRefreshInfo(res.device_id);
@@ -398,22 +559,11 @@ async function enroll(index) {
       } catch {}
     }, 3500);
   } catch (e) {
-    alert("enroll error: " + e.message);
+    toast("Error al registrar: " + e.message, "err");
   }
 }
 
-// =====================
-// Buttons
-// =====================
-const btnSave = el("btnSave");
-if (btnSave) btnSave.onclick = () => save().catch(e => alert("save error: " + e.message));
-const btnStart = el("btnStart");
-if (btnStart) btnStart.onclick = async () => { await window.ZBridge.bridgeStart(); await refreshRunningState(); };
-const btnStop = el("btnStop");
-if (btnStop) btnStop.onclick = async () => { await window.ZBridge.bridgeStop(); await refreshRunningState(); };
-const btnRestart = el("btnRestart");
-if (btnRestart) btnRestart.onclick = async () => { await window.ZBridge.bridgeRestart(); await refreshRunningState(); };
-
+// ── Button handlers ────────────────────────────────────────────────────────────
 const btnAdd = el("btnAddDevice");
 if (btnAdd) {
   btnAdd.onclick = () => {
@@ -429,33 +579,46 @@ if (list) {
     const btn = e.target.closest("[data-action]");
     if (!btn) return;
     const action = btn.getAttribute("data-action");
-    const idx = Number(btn.getAttribute("data-index"));
+    const idx    = Number(btn.getAttribute("data-index"));
     if (!Number.isFinite(idx)) return;
-    const devices = collectDevices();
-    const dev = devices[idx];
+
+    const devices  = collectDevices();
+    const dev      = devices[idx];
     const deviceId = String(dev?.DEVICE_UUID || `idx-${idx}`).trim();
 
     if (action === "remove") {
       stateDevices = devices;
-      const hasId = !!String(dev?.DEVICE_UUID || "").trim();
-      const hasKey = !!String(dev?.DEVICE_KEY || "").trim();
+      const hasId  = !!String(dev?.DEVICE_UUID || "").trim();
+      const hasKey = !!String(dev?.DEVICE_KEY  || "").trim();
+
       if (hasId && !hasKey) {
-        const okLocal = confirm("No se pudo eliminar en la base de datos porque falta DEVICE KEY. ¿Eliminar solo del bridge?");
-        if (!okLocal) return;
-      }
-      if (hasId && hasKey) {
-        const ok = confirm("¿Eliminar este dispositivo? También se eliminará de la base de datos.");
+        const ok = await confirmModal(
+          "Falta la llave del dispositivo, no se puede eliminar de la base de datos. ¿Eliminar solo del bridge?",
+          { danger: true, confirmLabel: "Eliminar del bridge" }
+        );
         if (!ok) return;
+      }
+
+      if (hasId && hasKey) {
+        const ok = await confirmModal(
+          "¿Eliminar este dispositivo? También se eliminará de la base de datos.",
+          { title: "Eliminar dispositivo", danger: true, confirmLabel: "Eliminar" }
+        );
+        if (!ok) return;
+
         try {
           const res = await window.ZBridge.bridgeDeleteDevice({ device: dev });
           if (!res || !res.ok) {
-            const errMsg = String(res?.error || "unknown_error").toLowerCase();
+            const errMsg = String(res?.error || "").toLowerCase();
             if (errMsg.includes("invalid device key")) {
-              const okLocal = confirm("No se pudo eliminar en la base de datos (device key inválido). ¿Eliminar solo del bridge?");
+              const okLocal = await confirmModal(
+                "No se pudo eliminar de la base de datos (llave inválida). ¿Eliminar solo del bridge?",
+                { danger: true, confirmLabel: "Eliminar del bridge" }
+              );
               if (!okLocal) return;
               appendLog("WARN: delete device db failed (invalid device key). Se eliminó solo en el bridge.");
             } else {
-              alert("No se pudo eliminar en la base de datos.\n\n" + (res?.error || "unknown_error"));
+              toast("No se pudo eliminar de la base de datos: " + (res?.error || "error"), "err");
               appendLog("ERR: delete device -> " + (res?.error || "unknown_error"));
               return;
             }
@@ -463,22 +626,27 @@ if (list) {
         } catch (e) {
           const errMsg = String(e?.message || e || "").toLowerCase();
           if (errMsg.includes("invalid device key")) {
-            const okLocal = confirm("No se pudo eliminar en la base de datos (device key inválido). ¿Eliminar solo del bridge?");
+            const okLocal = await confirmModal(
+              "No se pudo eliminar de la base de datos (llave inválida). ¿Eliminar solo del bridge?",
+              { danger: true, confirmLabel: "Eliminar del bridge" }
+            );
             if (!okLocal) return;
             appendLog("WARN: delete device db failed (invalid device key). Se eliminó solo en el bridge.");
           } else {
-            alert("No se pudo eliminar en la base de datos.\n\n" + (e?.message || e));
+            toast("No se pudo eliminar: " + (e?.message || e), "err");
             appendLog("ERR: delete device -> " + (e?.message || e));
             return;
           }
         }
       }
+
       const key = deviceKey(dev, idx);
       editingKeys.delete(key);
       stateDevices.splice(idx, 1);
       renderDevices();
       const saved = await persistDevices(stateDevices, { silent: true });
-      if (!saved || !saved.ok) return;
+      if (!saved?.ok) return;
+      toast("Dispositivo eliminado", "ok");
       await load();
     }
 
@@ -491,6 +659,16 @@ if (list) {
       const key = deviceKey(stateDevices[idx], idx);
       if (editingKeys.has(key)) editingKeys.delete(key);
       else editingKeys.add(key);
+      renderDevices();
+    }
+
+    if (action === "save") {
+      stateDevices = devices;
+      const key = deviceKey(stateDevices[idx], idx);
+      editingKeys.delete(key);
+      const res = await persistDevices(stateDevices, { silent: true });
+      if (res?.ok) toast("Cambios guardados", "ok");
+      else toast(res?.error || "No se pudo guardar", "err");
       renderDevices();
     }
 
@@ -514,7 +692,6 @@ if (list) {
   });
 }
 
-// Updates buttons
 const btnUpdateCheck = el("btnUpdateCheck");
 if (btnUpdateCheck) {
   btnUpdateCheck.onclick = async () => {
@@ -523,7 +700,7 @@ if (btnUpdateCheck) {
       await window.ZBridge.updatesCheck();
     } catch (e) {
       appendLog("ERR: updatesCheck -> " + e.message);
-      alert("updatesCheck error: " + e.message);
+      toast("Error al buscar actualizaciones: " + e.message, "err");
     }
   };
 }
@@ -532,23 +709,21 @@ const btnUpdateInstall = el("btnUpdateInstall");
 if (btnUpdateInstall) {
   btnUpdateInstall.onclick = async () => {
     try {
-      appendLog("Instalando actualizacion...");
+      appendLog("Instalando actualización...");
       await window.ZBridge.updatesInstall();
     } catch (e) {
       appendLog("ERR: updatesInstall -> " + e.message);
-      alert("updatesInstall error: " + e.message);
+      toast("Error al instalar actualización: " + e.message, "err");
     }
   };
 }
 
-// =====================
-// IPC listeners
-// =====================
+// ── IPC listeners ──────────────────────────────────────────────────────────────
 window.ZBridge.onLog((msg) => appendLog(msg));
 
 window.ZBridge.onState((st) => {
   setStateLabel(st);
-  renderDevices();
+  patchRunningState();
 });
 
 if (window.ZBridge.onConfigUpdated) {
@@ -562,7 +737,7 @@ if (window.ZBridge.onUpdateState) {
   window.ZBridge.onUpdateState((st) => {
     const state = st?.state || "idle";
     setUpdateUI(state);
-    appendLog("Estado actualizacion: " + state);
+    if (state !== "idle") appendLog("Estado actualización: " + state);
   });
 }
 
@@ -571,24 +746,5 @@ load().catch((e) => {
   console.error(e);
 });
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+// Actualizar stats cada 20 segundos
+setInterval(() => refreshStats(), 20000);

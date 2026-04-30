@@ -33,4 +33,8 @@ contextBridge.exposeInMainWorld("ZBridge", {
   updatesCheck: () => ipcRenderer.invoke("updates:check"),
   updatesInstall: () => ipcRenderer.invoke("updates:install"),
   onUpdateState: (fn) => ipcRenderer.on("update-state", (_e, st) => fn(st)),
+
+  // App info
+  appVersion: () => ipcRenderer.invoke("app:version"),
+  bridgeStats: () => ipcRenderer.invoke("bridge:stats"),
 });

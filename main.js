@@ -15,14 +15,15 @@ const fs = require("fs");
 const fsp = require("fs/promises");
 const { spawn } = require("child_process");
 
-// Auto-updater
-const { autoUpdater } = require("electron-updater");
+// Auto-updater (lazy — initialized in setupAutoUpdater after app is ready)
+let autoUpdater = null;
 
 let tray = null;
 let win = null;
 let bridgeStopRequested = false;
 let bridgeProcs = new Map();
 let lastDeviceCount = 0;
+const deviceStats = new Map(); // deviceId → { stream_connected, last_event_at, queue_depth, events_session, updated_at }
 
 const APP_NAME = "Zenter Bridge";
 
@@ -522,9 +523,20 @@ function startDevice(device, index, cfg) {
       bridgeProcs.set(deviceId, entry);
 
       proc.stdout.on("data", (d) => {
-        const s = d.toString("utf8").trim();
-        if (s) console.log(`[${label}]`, s);
-        if (win && s) win.webContents.send("bridge-log", `[${label}] ${s}`);
+        const raw = d.toString("utf8");
+        raw.split("\n").forEach((line) => {
+          const s = line.trim();
+          if (!s) return;
+          if (s.startsWith("ZSTATS:")) {
+            try {
+              const stats = JSON.parse(s.slice(7));
+              deviceStats.set(deviceId, { ...stats, updated_at: new Date().toISOString() });
+            } catch {}
+            return; // no enviar al log de la UI
+          }
+          console.log(`[${label}]`, s);
+          if (win) win.webContents.send("bridge-log", `[${label}] ${s}`);
+        });
       });
 
       proc.stderr.on("data", (d) => {
@@ -538,6 +550,7 @@ function startDevice(device, index, cfg) {
         if (cur && cur.proc === proc) {
           cur.proc = null;
         }
+        deviceStats.delete(deviceId);
         updateTrayMenu();
         if (win) win.webContents.send("bridge-state", bridgeState());
         if (!bridgeStopRequested && !app.isQuiting) scheduleDeviceRestart(deviceId);
@@ -564,11 +577,10 @@ function startBridge() {
 
   if (!ready.length) {
     const miss = missingCoreFields(devices);
-    dialog.showErrorBox(
-      APP_NAME,
-      `Faltan settings para iniciar el Bridge.\n\n${miss.join("\n")}\n\nConfig file:\n${CONFIG_PATH}`
-    );
-    if (win) win.show();
+    const msg = devices.length
+      ? `WARN: Bridge no iniciado — faltan datos en los dispositivos: ${miss.join(" | ")}`
+      : `WARN: Bridge no iniciado — agrega un dispositivo para comenzar.`;
+    if (win?.webContents) win.webContents.send("bridge-log", msg);
     return;
   }
 
@@ -943,6 +955,7 @@ function createWindow() {
     height: 720,
     show: false,
     resizable: true,
+    icon: resolveIconPath(),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -958,6 +971,10 @@ function createWindow() {
   } else {
     win.loadFile(UI_HTML);
   }
+
+  win.once("ready-to-show", () => {
+    if (!IS_AUTOSTART) win.show();
+  });
 
   // En tray apps, el close solo oculta (a menos que estemos quitando la app)
   win.on("close", (e) => {
@@ -1033,6 +1050,7 @@ function setUpdateState(s) {
 }
 
 function setupAutoUpdater() {
+  autoUpdater = require("electron-updater").autoUpdater;
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
 
@@ -1171,6 +1189,8 @@ ipcMain.handle("paths:config", () => ({ configPath: CONFIG_PATH, configDir: CONF
 
 ipcMain.handle("updates:check", () => { triggerUpdateCheck(true); return { ok: true }; });
 ipcMain.handle("updates:install", () => { autoUpdater.quitAndInstall(); return { ok: true }; });
+ipcMain.handle("app:version", () => app.getVersion());
+ipcMain.handle("bridge:stats", () => Object.fromEntries(deviceStats));
 
 // =============================
 // App lifecycle
@@ -1190,10 +1210,9 @@ app.whenReady().then(() => {
   scheduleUpdateChecks();
   triggerUpdateCheck(false);
 
-  // Si NO es autostart, muéstrame la ventana la primera vez (opcional)
+  // Abre la ventana al arrancar (salvo autostart desde login de Windows)
   if (!IS_AUTOSTART) {
-    // Puedes comentar esto si quieres que siempre quede oculto hasta click en tray
-    // win.show();
+    win.show();
   }
 });
 

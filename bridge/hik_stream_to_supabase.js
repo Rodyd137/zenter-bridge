@@ -145,6 +145,7 @@ function parseJsonSafe(text) {
 // ---------- Runtime state ----------
 let streamConnected = false;
 let lastEventIso = null;
+let eventsSession = 0;
 
 
 // Valores (se cargan desde ENV después de aplicar config)
@@ -168,7 +169,7 @@ let INSERT_CONCURRENCY = 3;
 
 // Heartbeat
 let BRIDGE_ID = null;
-let HEARTBEAT_MS = 15000;
+let HEARTBEAT_MS = 300000; // 5 minutos por defecto
 let HB_TABLE = "access_device_heartbeats";
 let VERSION = "zenter-bridge@1.0.0";
 
@@ -220,7 +221,7 @@ function refreshSettingsFromEnv() {
   INSERT_CONCURRENCY = Math.max(1, Number(process.env.INSERT_CONCURRENCY || 3));
 
   BRIDGE_ID = process.env.BRIDGE_ID || os.hostname() || "bridge-1";
-  HEARTBEAT_MS = Number(process.env.HEARTBEAT_MS || 15000);
+  HEARTBEAT_MS = Number(process.env.HEARTBEAT_MS || 300000);
   HB_TABLE = process.env.HEARTBEAT_TABLE || "access_device_heartbeats";
   VERSION = process.env.BRIDGE_VERSION || "zenter-bridge@1.0.0";
 
@@ -418,6 +419,16 @@ async function sendHeartbeat() {
   try {
     const files = await listQueueFiles();
     const queueDepth = files.length;
+
+    // Emitir stats para que main.js las capture
+    const statsLine = JSON.stringify({
+      device_id: DEVICE_UUID,
+      stream_connected: !!streamConnected,
+      last_event_at: lastEventIso,
+      queue_depth: queueDepth,
+      events_session: eventsSession,
+    });
+    process.stdout.write(`ZSTATS:${statsLine}\n`);
 
     const row = {
       device_id: DEVICE_UUID,
@@ -1078,6 +1089,7 @@ async function onJsonEvent(payload) {
     const d = new Date(payload.dateTime);
     if (!Number.isNaN(d.getTime())) lastEventIso = d.toISOString();
   }
+  eventsSession += 1;
 
   // 1) guardar primero (offline-safe)
   const receivedAt = nowIso();
