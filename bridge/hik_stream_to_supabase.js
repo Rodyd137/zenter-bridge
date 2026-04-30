@@ -242,8 +242,13 @@ function refreshSettingsFromEnv() {
   startCutoffMs = Date.now();
   if (START_MODE === "all") startCutoffMs = 0;
 
-  // ✅ cola por dispositivo en ProgramData (evita cruces + permite multi-device futuro)
-  DEVICE_DIR = path.join(ROOT_DIR, "devices", safeName(DEVICE_UUID));
+  // Cola por dispositivo — ROOT_DIR puede ser ya el directorio del dispositivo
+  // cuando ZB_CONFIG_PATH apunta a devices/{UUID}/config.json, así que subimos
+  // al root de ZenterBridge para evitar el path duplicado devices/{UUID}/devices/{UUID}
+  const zbRoot = path.basename(ROOT_DIR) === safeName(DEVICE_UUID)
+    ? path.dirname(path.dirname(ROOT_DIR))   // .../ZenterBridge
+    : ROOT_DIR;
+  DEVICE_DIR = path.join(zbRoot, "devices", safeName(DEVICE_UUID));
   QUEUE_DIR = path.join(DEVICE_DIR, "queue");
   DONE_DIR = path.join(DEVICE_DIR, "done");
 }
