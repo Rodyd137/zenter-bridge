@@ -162,6 +162,8 @@ let DEVICE_KEY = null;
 
 let START_MODE = "now";
 let RECONNECT_MS = 1500;
+let RECONNECT_MAX_MS = 60000;
+let reconnectDelay = 0;          // espera actual; vuelve a RECONNECT_MS al conectar
 let CURL_VERBOSE = false;
 
 let FLUSH_INTERVAL_MS = 5000;
@@ -174,7 +176,10 @@ let HB_TABLE = "access_device_heartbeats";
 let VERSION = "zenter-bridge@1.0.0";
 
 // Jobs
-let JOB_POLL_MS = 4000;
+let JOB_POLL_MS = 4000;          // con trabajos recientes
+let JOB_POLL_IDLE_MS = 15000;    // sin trabajos
+let JOB_FAST_WINDOW_MS = 3 * 60 * 1000;
+let jobsFastUntil = 0;
 let JOB_LIMIT = 5;
 
 // Backlog cutoff
@@ -215,6 +220,7 @@ function refreshSettingsFromEnv() {
 
   START_MODE = (process.env.START_MODE || "now").toLowerCase() === "all" ? "all" : "now";
   RECONNECT_MS = Number(process.env.RECONNECT_MS || 1500);
+  RECONNECT_MAX_MS = Math.max(RECONNECT_MS, Number(process.env.RECONNECT_MAX_MS || 60000));
   CURL_VERBOSE = String(process.env.CURL_VERBOSE ?? "0") === "1";
 
   FLUSH_INTERVAL_MS = Number(process.env.FLUSH_INTERVAL_MS || 5000);
@@ -226,6 +232,7 @@ function refreshSettingsFromEnv() {
   VERSION = process.env.BRIDGE_VERSION || "zenter-bridge@1.0.0";
 
   JOB_POLL_MS = Math.max(1500, Number(process.env.JOB_POLL_MS || 4000));
+  JOB_POLL_IDLE_MS = Math.max(JOB_POLL_MS, Number(process.env.JOB_POLL_IDLE_MS || 15000));
   JOB_LIMIT = Math.max(1, Number(process.env.JOB_LIMIT || 5));
 
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
@@ -1044,7 +1051,10 @@ async function pollJobsOnce() {
     });
     if (!res.ok) return;
     const jobs = Array.isArray(res.data?.jobs) ? res.data.jobs : [];
-    if (jobs.length) console.log(`[JOBS] recibidos ${jobs.length}`);
+    if (jobs.length) {
+      console.log(`[JOBS] recibidos ${jobs.length}`);
+      jobsFastUntil = Date.now() + JOB_FAST_WINDOW_MS;
+    }
     for (const j of jobs) {
       await handleJob(j);
     }
@@ -1076,11 +1086,13 @@ function parseHeaders(txt) {
 
 function tryDetectBoundary() {
   if (boundary) return;
+  if (buf.length > 256 * 1024) buf = buf.slice(buf.length - 16 * 1024);
   const s = buf.toString("utf8");
   const m = s.match(/--([^\r\n]+)\r\nContent-Type:/i);
   if (m && m[1]) {
     boundary = `--${m[1]}`;
     streamConnected = true;
+    reconnectDelay = 0;          // conectado: la próxima caída vuelve a esperar poco
 
     if (!printedBoundary) {
       console.log("[OK] Boundary detectado:", boundary);
@@ -1095,6 +1107,10 @@ async function onJsonEvent(payload) {
     if (!Number.isNaN(d.getTime())) lastEventIso = d.toISOString();
   }
   eventsSession += 1;
+
+  /* Solo las marcaciones se guardan y se suben (insertToSupabaseFromRaw
+     descarta cualquier otro tipo de evento) */
+  if (payload?.eventType !== "AccessControllerEvent") return;
 
   // 1) guardar primero (offline-safe)
   const receivedAt = nowIso();
@@ -1237,8 +1253,9 @@ function startStream() {
 
   p.on("close", (code) => {
     streamConnected = false;
-    console.error("ERR Stream cerro. code =", code, "-> reconectando en", RECONNECT_MS, "ms...");
-    setTimeout(startStream, RECONNECT_MS);
+    reconnectDelay = reconnectDelay ? Math.min(reconnectDelay * 2, RECONNECT_MAX_MS) : RECONNECT_MS;
+    console.error("ERR Stream cerro. code =", code, "-> reconectando en", reconnectDelay, "ms...");
+    setTimeout(startStream, reconnectDelay);
   });
 }
 
@@ -1269,13 +1286,19 @@ function startStream() {
   // manda uno de inmediato al iniciar
   await sendHeartbeat().catch(() => {});
 
-  // jobs pull periódico
-  setInterval(() => {
-    pollJobsOnce().catch(() => {});
-  }, JOB_POLL_MS).unref();
+  // jobs pull: rápido después de recibir trabajos, espaciado si no hay
+  const scheduleJobs = () => {
+    const ms = Date.now() < jobsFastUntil ? JOB_POLL_MS : JOB_POLL_IDLE_MS;
+    const t = setTimeout(async () => {
+      await pollJobsOnce().catch(() => {});
+      scheduleJobs();
+    }, ms);
+    t.unref?.();
+  };
 
   // uno inmediato
   await pollJobsOnce().catch(() => {});
+  scheduleJobs();
 
   startStream();
 })().catch((e) => {
